@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {WarehouseIssueReport} from '../app/warehouse-issue-report';
+import {TableScope} from '../app/grid-table';
+import {issueFixture} from './warehouse-issue-report';
+const state=issueFixture(),before=JSON.stringify(state),filters={project:'all',warehouse:'all',query:'',from:'',to:'',queue:'all'};
+const render=(extra={})=>renderToStaticMarkup(<TableScope.Provider value="isolated-quantity-review"><WarehouseIssueReport s={state} ar filters={filters} preview {...extra}/></TableScope.Provider>);
+const html=render();assert(html.includes('المنصرف من المخزن — التنفيذ الفعلي'));assert(html.includes('منفذ الإجراء — صرف المخزن'));assert(html.includes('مسؤول المخزن'));assert(html.includes('المندوب أحمد'));assert(html.includes('تصدير Excel'));assert(html.includes('تصدير CSV'));assert(html.includes('نفس أعمدة العرض'));assert(html.includes('الفروق غير المحسومة'));assert(html.includes('REQ1'));assert(html.includes('REQ2'));assert(html.includes('aria-expanded="false"'));assert(html.includes('غير متاح'));
+const scoped=render({filters:{...filters,project:'p1'}});assert(scoped.includes('REQ1'));assert(!scoped.includes('REQ2'));assert.equal(JSON.stringify(state),before);
+const english=render({ar:false});assert(english.includes('Action Performed By'));assert(english.includes('dir="ltr"'));
+const invalid=render({filters:{...filters,from:'2026-10-31',to:'2026-10-01'}});assert(invalid.includes('role="alert"'));assert(!invalid.includes('ISS1'));
+const live=render({preview:false});assert.match(live,/disabled=""[^>]*aria-busy="false"/);
+const matching=issueFixture();matching.exceptions=[];matching.handoffs[0].difference=0;
+const matchedHtml=render({s:matching});assert(!matchedHtml.includes('مرحل — يلزم إجراء مخزني مستقل'),'A posted matching issue must not claim a stock adjustment because false was localized to a truthy string');
+const needsAction=issueFixture();needsAction.exceptions=[{...needsAction.exceptions[0],status:'awaiting_decision',stockAdjustmentRequired:true,lastReviewedAt:'2026-10-22T12:00:00Z'}];
+const actionHtml=render({s:needsAction});assert(actionHtml.includes('في انتظار القرار — يلزم إجراء مخزني مستقل'));assert(!actionHtml.includes('يلزم إجراء مخزني مستقل — يلزم إجراء مخزني مستقل'),'Status projection must run only once in each table');
+console.log('Warehouse issue report SSR: bilingual role identities, scoped rows, XLSX/CSV controls, collapsible state, missing identity and invalid period PASS');

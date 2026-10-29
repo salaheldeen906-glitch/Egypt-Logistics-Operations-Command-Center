@@ -1,0 +1,10 @@
+PASS Wrong keeper cannot release another source
+PASS Departure waits for every required source confirmation
+PASS Multi-source plan executes through real route commands with separate mapped accounts
+PASS Target account receives a pending confirmation
+PASS Quantity mismatch and sender self-confirmation are denied
+PASS Receiving confirmation retries once and never reissues stock
+PASS Server export reviews filtered actual customer delivery with actor scope
+PASS An unrelated filter column is denied
+PASS New receipt batch and four accepted units persist once on retry
+{"suite":"Egypt full planned delivery and custody local Worker/D1/R2","pass":9,"fail":0}

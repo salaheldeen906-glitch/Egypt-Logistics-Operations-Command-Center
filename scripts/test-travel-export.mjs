@@ -1,0 +1,11 @@
+import {execFileSync} from 'node:child_process';
+import {mkdirSync,writeFileSync,realpathSync} from 'node:fs';
+import {createRequire} from 'node:module';
+const output='.sites-runtime/test-travel-export';
+mkdirSync(output,{recursive:true});
+execFileSync(process.execPath,['node_modules/typescript/bin/tsc','lib/tabular-export.ts','--outDir',output,'--module','commonjs','--target','es2022','--skipLibCheck'],{stdio:'inherit'});
+writeFileSync(output+'/package.json','{"type":"commonjs"}');
+execFileSync(process.execPath,['tests/travel-export.cjs'],{stdio:'inherit'});
+const require=createRequire(realpathSync('node_modules/vite/package.json')),{build}=require('esbuild');
+await build({entryPoints:['tests/travel-ui.tsx'],outfile:output+'/travel-ui.cjs',bundle:true,platform:'node',format:'cjs',jsx:'automatic',packages:'external',tsconfig:'tsconfig.json',loader:{'.css':'empty'}});
+execFileSync(process.execPath,[output+'/travel-ui.cjs'],{stdio:'inherit'});

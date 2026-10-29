@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {renderToStaticMarkup} from 'react-dom/server';
+import {GeoValueReports} from '../app/geo-value-reports';
+import {TableScope} from '../app/grid-table';
+import {fixture} from './geo-value-report';
+const state=fixture(),filters={project:'all',warehouse:'all',query:'',from:'2026-09-01',to:'2026-10-31',queue:'all'};
+const render=(extra={})=>renderToStaticMarkup(<TableScope.Provider value="isolated-geo-review"><GeoValueReports s={state} ar filters={filters} preview {...extra}/></TableScope.Provider>);
+const before=JSON.stringify(state),html=render();
+assert(html.includes('سحب المحافظات'));assert(html.includes('قيمة البضاعة عند العملاء'));assert(html.includes('الوقائع التي كوّنت الأرقام'));assert(html.includes('المتابعة وجودة البيانات'));
+assert(html.includes('صافي القيمة المسعّرة'));assert(html.includes('غير متاح'));assert(html.includes('الأعمدة'));assert(html.includes('تصدير Excel'));assert(html.includes('نفس أعمدة العرض'));assert(html.includes('REQ1'));assert(html.includes('REQ2'));
+const scoped=render({filters:{...filters,project:'p1'}});assert(scoped.includes('REQ1'));assert(!scoped.includes('REQ2'));
+assert(html.includes('تراكمي حتى النهاية'));assert(html.includes('نشاط الفترة'));assert(!html.includes('يتغير مع الفلتر'));assert.equal(JSON.stringify(state),before);
+const invalid=render({filters:{...filters,from:'2026-10-31',to:'2026-09-01'}});assert(invalid.includes('role="alert"'));assert(!invalid.includes('REQ1'));
+const live=render({preview:false});assert.match(live,/disabled=""[^>]*aria-busy="false"/);
+console.log('Geo/value SSR: groups, real scope, unknown values, column/export controls, no mutation and invalid range PASS');

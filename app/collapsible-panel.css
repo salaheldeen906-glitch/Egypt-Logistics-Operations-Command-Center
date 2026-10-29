@@ -1,0 +1,10 @@
+/* Local section controls inherit the existing light/dark site theme. */
+.collapsible-panel>.collapse-body{display:contents}
+.collapsible-panel>.collapse-body[hidden]{display:none!important}
+.collapsible-panel>.collapse-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-width:0}
+.collapsible-panel>.collapse-heading h2{min-width:0;overflow-wrap:anywhere}
+.collapsible-panel .collapse-toggle{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:40px;min-height:40px;padding:6px;margin:0;margin-inline-start:auto;border:1px solid var(--cc-line,var(--border));border-radius:5px;background:var(--cc-soft,var(--muted));color:var(--cc-text,var(--foreground));font:inherit;line-height:1.4;cursor:pointer}
+.collapsible-panel .collapse-toggle:hover{border-color:var(--cc-accent,var(--ring));color:var(--cc-accent,var(--primary))}
+.collapsible-panel .collapse-toggle:focus-visible{outline:2px solid var(--cc-accent,var(--ring));outline-offset:3px}
+.collapsible-panel .collapse-toggle svg{flex-shrink:0}
+@media(max-width:600px){.collapsible-panel .collapse-toggle{min-height:44px}.collapsible-panel>.collapse-heading{gap:8px}}

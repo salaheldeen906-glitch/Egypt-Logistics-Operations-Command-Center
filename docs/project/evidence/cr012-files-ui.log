@@ -1,0 +1,11 @@
+PASS Personal column preferences remove unknown keys, keep mandatory columns and recover new columns
+PASS Grid has keyboard column-order actions, default reset, required first column and all-result selection
+PASS Native operational tables retain row controls, required status and empty-row spans
+PASS Import entry distinguishes preview from saving and exposes template, file choice, drop and add/update policy
+PASS Export has separate column order, scope across pages, selected rows and explicit review-before-download
+PASS Named invitation defaults to viewer and includes explicit project scope without automatically emailing
+PASS Evidence provides secure preview and download and keeps upload separate from operational confirmation
+PASS CSV neutralizes formula text and leading-zero IDs while retaining true numeric measures
+PASS XLSX uses exact text codes, numeric values, typed dates, safe text and selected column order
+PASS Evidence content signatures and extension mismatches are rejected
+{"suite":"File tools source/component SSR checks; not browser/device acceptance","pass":10,"fail":0}

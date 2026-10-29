@@ -1,0 +1,10 @@
+.report-subtabs{margin-block:10px 14px;max-width:100%;overflow-x:auto}
+.report-subtabs [role=tab]{min-height:42px;white-space:normal;text-align:center}
+.table-excel-control{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-block:8px;font-size:12px;color:var(--cc-muted,var(--muted-foreground))}
+.table-excel-control [role=alert]{color:var(--cc-danger,var(--destructive))}
+.command-center [data-section-id="operational-requests"] .table-shell table,.command-center [data-section-id="dashboard-requests"] .table-shell table{min-width:1550px}
+.line-row:has(.outward-price){grid-template-columns:minmax(140px,2fr) minmax(75px,.7fr) minmax(110px,1fr) minmax(90px,.8fr) 36px;align-items:end}
+.outward-price{display:flex;flex-direction:column;gap:5px;font-size:12px}
+.reports-overview .ro-toggle{min-width:40px;min-height:40px;color:var(--cc-accent,var(--primary))}
+@media(max-width:700px){.line-row:has(.outward-price){grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.line-row:has(.outward-price)>:first-child{grid-column:1/-1}.report-subtabs{width:100%}}
+.reports-sample-action{justify-content:flex-end;margin-block:8px 12px;flex-wrap:wrap}

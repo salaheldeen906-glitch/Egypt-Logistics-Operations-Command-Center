@@ -1,0 +1,10 @@
+PASS Courier screen shows undelivered-return action but no client-return or warehouse acceptance
+PASS Planned return shows courier drop-off and explicit warehouse wait
+PASS Presented return shows acceptance only in warehouse screen
+PASS Owner gets the actual warehouse acceptance form immediately without navigating roles or tabs
+PASS Courier sees the keeper wait instead of an unauthorized acceptance form
+PASS Completed return displays explicit continuation instead of a blank action cell
+PASS Screenshot zero custody opens task confirmation directly, followed by closure
+PASS Warehouse sees compact batch selection with expiry and no prefilled quantity
+PASS Dispatcher is authorized to select batches and confirm actual pickup
+{"suite":"Server-rendered role screens (not browser QA)","pass":9,"fail":0}

@@ -1,0 +1,20 @@
+import {type Actor,type State,type Row} from './model';
+import {authorize} from './engine';
+import {actualSources,actualAvailable} from './actual-quantities';
+import {fulfilled,round} from './operation-types';
+import {returnAmount,pendingReturn} from './task-trace';
+import {nextAction} from './insights';
+export const workRoles=[['project_manager','مدير المشروع','Project manager'],['operations','العمليات','Operations'],['dispatcher','مسؤول الحركة','Dispatcher'],['representative','المندوب','Courier'],['warehouse','أمين المخزن','Warehouse keeper']] as const;
+const roles:Record<string,string>={warehouse_release:'warehouse',courier_collect:'representative',loading_mismatch:'operations',submit:'project_manager',approve:'operations',reserve:'warehouse',assign:'dispatcher',verify_documents:'operations',create_route:'dispatcher',pickup_actual:'representative',load:'warehouse',depart:'representative',arrive:'representative',deliver:'representative',complete_task:'representative',pod:'representative',close:'representative',receive_purchase:'warehouse',close_receipt:'warehouse',prepare_tasks:'dispatcher',assign_task:'dispatcher',plan_return:'representative',return_destination:'representative',return_arrive:'representative',receive_return:'warehouse',op_plan:'dispatcher',op_authorize:'operations',op_reserve:'warehouse',op_collect:'representative',op_present:'representative',op_arrive:'representative',op_receive:'warehouse',op_deliver:'representative',op_document:'representative',op_close:'operations',resolve_exception:'operations'};
+export const roleForAction=(action:string)=>action==='loading_mismatch'||action==='review_loading_difference'||action==='review_quantity_increase'?'dispatcher':roles[action]||'representative';
+export function laneAllows(actor:Actor,lane:string,type:string,taskType?:string){try{authorize(actor,{type,taskType});authorize({...actor,role:'contributor',function:lane},{type,taskType});return true;}catch{return false;}}
+export function workStep(s:State,r:Row){const n=nextAction(s,r);return {...n,role:roleForAction(n.action),section:['return_destination','return_arrive','receive_return'].includes(n.action)?'returns':'execution'};}
+export function returnProgress(s:State,t:Row){const accepted=Math.round(s.returns.filter(x=>x.taskId===t.id).reduce((n,x)=>n+x.quantity,0)*1000)/1000,presented=t.presentedQuantity??(['arrived','completed'].includes(t.status)?t.quantity:0);return {accepted,presented,awaiting:Math.max(0,Math.round((presented-accepted)*1000)/1000),toPresent:Math.max(0,Math.round((t.quantity-presented)*1000)/1000),custody:Math.max(0,Math.round((t.quantity-accepted)*1000)/1000)};}
+
+export function returnChoices(s:State,r:Row){
+ const tasks=s.tasks.filter(t=>t.requestId===r.id),returns=tasks.filter(t=>t.taskType==='return');
+ const eligible=tasks.filter(t=>['allocation','delivery'].includes(t.taskType)&&t.executorId&&(t.distributionPlanId||['loaded','in_transit','arrived','delivering','collecting'].includes(r.status))).map(t=>({id:t.id,taskId:t.id,reservationId:'',name:t.code+' · '+t.destination,executorId:t.executorId,remaining:Math.min(round(t.quantity-fulfilled(s,t)-returnAmount(s,t)-pendingReturn(s,t)),round(actualSources(s,r,t).reduce((n,x)=>n+actualAvailable(s,x),0)))})).filter(t=>t.remaining>0);
+ if(!tasks.some(t=>['allocation','delivery'].includes(t.taskType)))for(const res of s.reservations.filter(x=>x.requestId===r.id&&x.status==='issued')){const n=actualAvailable(s,res);if(n>0)eligible.push({id:res.id,taskId:'',reservationId:res.id,name:res.code+' · '+r.destination,executorId:s.assignments.find(x=>x.reservationId===res.id)?.executorId||'',remaining:n});}
+ const customerReturns=tasks.filter(t=>['allocation','delivery'].includes(t.taskType)&&t.destinationKind!=='warehouse'&&fulfilled(s,t)>0).map((t):Row=>({...t,available:round(fulfilled(s,t)-returns.filter(x=>x.sourceTaskId===t.id&&x.source==='delivered').reduce((n,x)=>n+x.quantity,0))})).filter(t=>t.available>0);
+ return {tasks,returns,eligible,customerReturns};
+}

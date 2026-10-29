@@ -1,0 +1,22 @@
+'use client';
+import {GuidedAction} from './guided-action';
+import {useState,useEffect,useContext,type ReactNode} from 'react';
+import {type Actor,type Row,type State,type Command} from '@/lib/model';
+import {workRoles,workStep,laneAllows} from '@/lib/role-work';
+import {DraftScope} from './use-task-draft';
+import {WorkflowGuide} from './workflow-guide';
+import {Button} from '@/components/ui/button';
+type View={can:(type:string)=>boolean;run:(c:Command)=>Promise<any>;section:string;role:string;showReturns:()=>void};
+export function RequestWorkframe({s,r,actor,ar,run,upload,children,onReview,showJourney=true}:{s:State;r:Row;actor:Actor;ar:boolean;run:(c:Command)=>Promise<any>;upload?:(f:File|undefined,p:string,t?:string)=>Promise<any>;children:(v:View)=>ReactNode;onReview?:(step:string)=>void;showJourney?:boolean}){
+ const scope=useContext(DraftScope),key='daf-work-v3:'+scope+':'+r.id,next=workStep(s,r),wide=['owner','manager'].includes(actor.role)||actor.function==='all',l=(a:string,b:string)=>ar?a:b;
+ const [role,R]=useState(wide?next.role:actor.function),[section,S]=useState(next.section),[ready,Q]=useState(false),[saved,M]=useState(false),[details,D]=useState(false);
+ useEffect(()=>{try{const v=JSON.parse(localStorage.getItem(key)||'null');if(v){if(wide&&workRoles.some(x=>x[0]===v.role))R(v.role);if(['execution','returns','quantities','documents'].includes(v.section))S(v.section);}}catch{}Q(true);},[key]);
+ useEffect(()=>{if(ready)try{localStorage.setItem(key,JSON.stringify({role,section}));}catch{}},[key,ready,role,section]);
+ const can=(type:string)=>(r.loadingProtocol!=='dual'||!['pickup_actual','load','op_issue'].includes(type))&&laneAllows(actor,role,type),goNext=()=>{if(wide)R(next.role);S(next.section);M(false);},runStep=async(c:Command)=>{if(!laneAllows(actor,role,c.type,c.taskType))throw Error(l('الخطوة تخص دورًا آخر؛ اختار الدور الموضح أولًا.','Choose the responsible role before executing.'));const out=await run(c);if(['plan_return','return','return_arrive','receive_return','return_destination'].includes(c.type))S('returns');M(true);return out;};
+ const roleName=(id:string)=>workRoles.find(x=>x[0]===id)?.[ar?1:2]||l('متابعة','Review');
+ return <section className="role-workframe">{showJourney&&<div className="evolution-current-guide"><WorkflowGuide s={s} r={r} ar={ar} can={can} onReview={onReview}/></div>}<GuidedAction s={s} r={r} actor={actor} ar={ar} run={run} upload={upload} onDetails={()=>D(true)}/><button type="button" className="guided-details-toggle" aria-expanded={details} onClick={()=>D(!details)}>{details?l('إخفاء التفاصيل والعودة للخطوة المباشرة','Hide details'):l('عرض التفاصيل والكميات والمستندات','View details, quantities and documents')}</button>{details&&<><div className="role-work-head"><label>{l('أنت تعمل الآن كـ','Working as')}{wide?<select aria-label={l('دور التنفيذ','Execution role')} value={role} onChange={e=>{R(e.target.value);M(false);}}>{workRoles.map(x=><option key={x[0]} value={x[0]}>{x[ar?1:2]}</option>)}</select>:<strong>{roleName(role)}</strong>}</label><p>{wide?l('اختيار الدور ينظم الشاشة فقط؛ لا يغير صلاحيات حسابك.','This view selector does not change account permissions.'):l('تظهر هنا أزرار دورك فقط.','Only your role’s actions appear here.')}</p></div>
+ <div className="next-owner" role="status">{saved&&<strong>{l('تم الحفظ. ','Saved. ')}</strong>}<span>{next.action?l('الخطوة التالية عند: ','Next responsible role: ')+roleName(next.role):l('اكتمل الطلب','Request completed')}</span><b>{ar?next.ar:next.en}</b>{next.action&&(wide||role===next.role)&&<Button size="sm" onClick={goNext}>{l('افتح خطوة ','Open step for ')+roleName(next.role)}</Button>}{next.action&&!wide&&role!==next.role&&<small>{l('بانتظار المسؤول المذكور. تقدر تتابع الحالة من نفس الطلب.','Waiting for the named role. Follow progress in this request.')}</small>}</div>
+ <nav className="work-sections" aria-label={l('أقسام الطلب','Request sections')}>{[['execution','التنفيذ','Execution'],['returns','المتبقي والمرتجع','Returns'],['quantities','الكميات والعهدة','Quantities'],['documents','المستندات','Documents']].map(x=><button key={x[0]} type="button" aria-pressed={section===x[0]} onClick={()=>S(x[0])}>{x[ar?1:2]}{x[0]==='returns'&&s.tasks.some(t=>t.requestId===r.id&&t.taskType==='return'&&t.status!=='completed')?' •':''}</button>)}</nav>
+ <div key={role+':'+section}>{children({can,run:runStep,section,role,showReturns:()=>S('returns')})}</div>
+ </>}</section>;
+}

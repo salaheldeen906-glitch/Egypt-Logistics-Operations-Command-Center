@@ -1,0 +1,5 @@
+PASS Workbook sheet list includes a non-first sheet
+PASS Selected non-first XLSX sheet preserves 1105 Arabic rows and leading-zero codes
+PASS Excel serial date mapping is converted to an actual ISO day
+PASS Formula-bearing XLSX input is rejected before operational confirmation
+{"suite":"XLSX import parser with XML adapter; no browser acceptance claim","pass":4,"fail":0}

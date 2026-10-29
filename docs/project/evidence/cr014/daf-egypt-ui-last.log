@@ -1,0 +1,7 @@
+PASS Dashboard labels schematic positions honestly and provides keyboard warehouse controls
+PASS Empty dashboard contains no illustrative revenue or seeded route figures
+PASS Allocation form presents distinct warehouse courier destination quantity and source rows
+PASS Incoming courier transfer requires an explicit actual quantity and allows cancellation
+PASS Report table offers all column operators and independent visibility/order controls
+PASS Trip view uses persisted stop state and does not invent departure/arrival times
+{"suite":"Egypt component SSR (not browser or visual QA)","pass":6,"fail":0}

@@ -1,0 +1,58 @@
+$ node scripts/run-framework.mjs build
+/usr/bin/timeout
+Running bounded vinext build...
+
+  vinext build  (Vite 8.0.13)
+
+[33m▲ [43;33m[[43;30mWARNING[43;33m][0m [1mProxy environment variables detected. We'll use your proxy for fetch requests.[0m
+
+
+[1/5] analyze client references...
+[2Ktransforming...✓ 263 modules transformed.
+rendering chunks...
+✓ built in 1.68s
+[2/5] analyze server references...
+[2Ktransforming...✓ 257 modules transformed.
+rendering chunks...
+✓ built in 937ms
+[3/5] build rsc environment...
+[2Ktransforming...✓ 260 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 1.30s
+[4/5] build client environment...
+[2Ktransforming...✓ 2065 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 2.85s
+[5/5] build ssr environment...
+[2Ktransforming...✓ 263 modules transformed.
+rendering chunks...
+computing gzip size...
+✓ built in 1.07s
+[0m
+  Route (app)
+  ┌ ƒ /                           
+  ├ λ /api/action                 
+  ├ λ /api/assistant              
+  ├ λ /api/backup                 
+  ├ λ /api/command-center/action  
+  ├ λ /api/command-center/draft   
+  ├ λ /api/command-center/state   
+  ├ λ /api/export                 
+  ├ λ /api/file                   
+  ├ λ /api/join                   
+  ├ λ /api/search                 
+  ├ λ /api/state                  
+  ├ λ /api/upload                 
+  ├ ? /egypt-africa-command-center
+  └ ? /walkthrough                
+
+  λ API  ƒ Dynamic  ? Unknown
+
+  ? Some routes could not be classified. vinext currently uses static analysis
+    and cannot detect dynamic API usage (headers(), cookies(), etc.) at build time.
+    Automatic classification will be improved in a future release.
+
+  Build complete. Run `vinext start` to start the production server.
+

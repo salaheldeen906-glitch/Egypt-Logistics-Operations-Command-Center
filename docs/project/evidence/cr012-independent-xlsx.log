@@ -1,0 +1,2 @@
+{"kind":"region","sheet":"DAF Export","address":"A1:B5","rows":5,"cols":2,"nonEmpty":10,"text":10,"maxTextLength":38,"preview":[["كود العميل / Customer code","اسم العميل / Customer name"],["C-TEST-001","Pilot medical center / مركز طبي تجريبي"],["000000","=HYPERLINK(\"http://example.invalid\")"],["000001","عميل اختباري 1"],["000002","عميل اختباري 2"]],"previewAddress":"A1:B5","previewRows":5,"previewCols":2}
+PASS independent XLSX import preserves identifiers, Arabic and final row; render produced.

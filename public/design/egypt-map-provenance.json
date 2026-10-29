@@ -1,0 +1,77 @@
+{
+  "asset": "egypt-relief-reference.svg",
+  "built_at": "2026-10-14",
+  "projection": "EPSG:4326 / plate carrée, identical raster/vector transform",
+  "extent": {
+    "west": 24,
+    "south": 21.5,
+    "east": 37.5,
+    "north": 32.5
+  },
+  "dimensions": [
+    1080,
+    880
+  ],
+  "purpose": "Static geographical reference. No warehouse/courier coordinates or operational routes are assigned from this map.",
+  "raster": {
+    "title": "Blue Marble (August 2004, Shaded Relief and Bathymetry)",
+    "credit": "NASA Earth Observatory / MODIS / GIBS",
+    "ongoing": false,
+    "metadata": "https://gibs.earthdata.nasa.gov/layer-metadata/v1.0/BlueMarble_ShadedRelief_Bathymetry.json",
+    "request": "https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=BlueMarble_ShadedRelief_Bathymetry&STYLES=&SRS=EPSG:4326&BBOX=24,21.5,37.5,32.5&WIDTH=1080&HEIGHT=880&FORMAT=image/jpeg",
+    "usage": "https://science.nasa.gov/earth/faq/",
+    "source_sha256": "00a2d785b5c7cbf267a96394aee100f71e9fdcf360b9ab3cdbbb4f7361387c95",
+    "processing": "Lossy WebP re-encoding at quality82; geographic extent unchanged."
+  },
+  "vectors": {
+    "credit": "Natural Earth",
+    "licence": "Public domain",
+    "terms": "https://www.naturalearthdata.com/about/terms-of-use/",
+    "boundary_view": "Default de facto; country boundary follows source, not hand-drawn. Not a survey or legal boundary document.",
+    "sources": [
+      {
+        "url": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_admin_0_countries.zip",
+        "version": "5.1.1",
+        "source_sha256": "ce1ac7036499a0edd641fbc093cd209a98f96a49d2eca8480aaacad35138a7f6"
+      },
+      {
+        "url": "https://naturalearth.s3.amazonaws.com/10m_physical/ne_10m_rivers_lake_centerlines.zip",
+        "version": "5.0.0",
+        "source_sha256": "ded71b01870855ccfe19b51f2ec14c9bb48fae23c0e9f3c11974d426433b5c38"
+      },
+      {
+        "url": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_populated_places.zip",
+        "version": "5.1.2",
+        "source_sha256": "cd149186f03d2603e0410da399b980a4357d0ac32d3a2305a49ed3dffcc41d7b"
+      }
+    ]
+  },
+  "reference_cities": [
+    {
+      "name": "Suez",
+      "longitude": 32.5499406,
+      "latitude": 30.004976
+    },
+    {
+      "name": "Aswan",
+      "longitude": 32.8989115,
+      "latitude": 24.0875078
+    },
+    {
+      "name": "Luxor",
+      "longitude": 32.6500378,
+      "latitude": 25.7000191
+    },
+    {
+      "name": "Alexandria",
+      "longitude": 29.94805,
+      "latitude": 31.2019652
+    },
+    {
+      "name": "Cairo",
+      "longitude": 31.2480224,
+      "latitude": 30.0519062
+    }
+  ],
+  "asset_sha256": "191b781306764b91a1ddf161df5741e31a0286ffcbefff9501c70d611b05c848"
+}

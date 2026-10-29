@@ -1,0 +1,241 @@
+PASS Viewer cannot create records
+PASS Contributor cannot self elevate or invite
+PASS Function-specific permission enforced
+PASS Server checks missing references
+PASS Zero and negative quantities rejected
+PASS Stock state cannot skip review
+PASS Contributor creates real operational data
+PASS Seed names explicitly test data; no fabricated expiry or batches
+PASS Multi-line reservation changes reserved, not on hand
+PASS Split same-batch reservation preserves held quantity
+PASS Repeated reservation forbidden
+PASS Shipping attachment is optional
+PASS No departure before pickup and loading
+PASS Issuing reduces warehouse once and creates transport custody
+PASS No repeated issue
+PASS Partial delivery does not deduct inventory twice
+PASS Cannot close unaccounted custody
+PASS Return restores inventory once
+PASS Reconciled quantities can close without a POD file
+PASS Multi-line order reaches closed after POD and reconciliation
+PASS Authorized courier can collect a customer return without choosing warehouse yet
+PASS Delivered return never creates negative transit
+PASS Unreferenced import of 250 rows passes
+PASS Import validates row 250, not just the first 100
+PASS Import duplicate file and dependent undo prevented
+PASS FEFO chooses earliest eligible batch and skips expired/90-day stock
+PASS Expired approval rejected even for manager
+PASS 90-day approval bound to exact operation and quantity
+PASS Opening without trace remains blocked
+PASS Insufficient last stock cannot be reserved by second request
+{"pass":30,"fail":0}
+PASS Existing records without stage history have unknown age
+PASS Scope hides other projects and products
+PASS Empty project scope exposes no operational quantities
+PASS Scope enforced on direct create request command
+PASS Viewer cannot delete with direct command
+PASS Contributor cannot invoke deletion
+PASS Manager cannot change memberships
+PASS Product with stock cannot be deleted
+PASS Request preview includes exactly draft and its lines
+PASS Deleting unused master preserves other records
+PASS Joint assignment does not duplicate quantities or ledger
+PASS Participant resource cannot be deleted while assigned
+PASS History stores actual transition and actor
+PASS Recheck rejects draft deletion after submit
+PASS Shared import history hidden from restricted scope
+PASS All dashboard cards equal corresponding list results
+PASS Warehouse filters use reservations and retain project filter
+PASS Overdue respects Cairo day near UTC midnight
+PASS Units are grouped rather than summed across measures
+PASS Future timestamps never create negative stage ages
+PASS One completed stop does not close a three-stop route
+{"pass":21,"fail":0,"suite":"Enhancement domain"}
+PASS Submit rejects incomplete destination allocation
+PASS Task planning rejects excess quantity
+PASS Saved task removal cannot bypass protected deletion
+PASS Cross-project task assignment is rejected
+PASS Priority and separate tasks persist
+PASS Task completion enforces actual function, not supplied type
+PASS Draft line replacement cannot orphan planned tasks
+PASS First route does not mark partially routed request ready
+PASS Multi-route request issues stock exactly once
+PASS Departure requires pickup and document tasks completed
+PASS Arrival at A does not permit delivery at B
+PASS Destination allocation enforced independently of custody
+PASS Task can complete without optional POD
+PASS First completed destination closes only its own route
+PASS Request close checks remaining task completion
+PASS POD for branch A cannot prove branch B
+PASS Full mixed-task cycle closes with reconciled inventory
+PASS Scoped search hides inaccessible tasks
+PASS Search pages are deterministic and bounded
+PASS Assistant cannot escalate, reset, import or delete
+PASS Assistant updates cannot replace master relationships
+{"pass":21,"fail":0,"suite":"Mixed tasks and scoped search"}
+PASS Receipt requires purchase approval reference
+PASS Receipt has no customer requirement and stays draft
+PASS Cannot receive before operations review
+PASS Receipt requires explicit receiver assignment and skips stock reservation
+PASS Project manager and viewer cannot post receipt
+PASS Receipt project scope is enforced
+PASS Document must belong to receipt
+PASS Partial receipt increases stock once without custody
+PASS Partial receipt cannot close
+PASS Excess and wrong-line receipt rejected
+PASS Receipt documents and warehouse protected from deletion
+PASS Warehouse filter includes inbound request before reservations
+PASS Full receipt retains audit and moves to close step
+PASS Repeat receipt cannot overpost stock
+PASS Receipt closes with no delivery or POD requirement
+{"suite":"Purchase receipt","pass":15,"fail":0}
+PASS Unassigned distribution cannot authorize
+PASS Source cannot also be destination
+PASS Duplicate product lines rejected
+PASS Project manager cannot assign after operations approval
+PASS 12 units allocate exactly 4 + 3 + 5 with two couriers
+PASS Excess allocation rejected
+PASS Authorization has no stock effect
+PASS FEFO reservations retain separate courier custody
+PASS Issue evidence is optional
+PASS Issue once moves source stock into custody
+PASS Cannot receive before arrival
+PASS Courier cannot add warehouse stock
+PASS Partial receipt adds actual amount only and preserves batch custody
+PASS First destination does not close whole request
+PASS Destination evidence cannot be shared across destinations
+PASS Mixed distribution reconciles source, both warehouses, customer and custody
+PASS Completed destination rejects duplicate posting and legacy bypass
+PASS Redirect requires reason and operations permission
+PASS Split while courier holds 12 preserves stock, total and custodian
+PASS Receipt authorization is unique and cannot issue source stock
+PASS Courier pickup does not increase stock
+PASS Warehouse cannot receive more than courier collected
+PASS Other courier cannot consume first courier collection
+PASS Split supplier collection closes after exactly 12 warehouse receipts
+PASS Documents have no product lines or stock reservation
+PASS Document cycle saves result with zero inventory effect
+PASS Return requires source reference and scope
+PASS Viewer cannot perform new operations
+PASS Customer return closes only after physical warehouse acceptance
+PASS Transfer respects near-expiry block and eligible batch selection
+PASS Warehouse transfer preserves total and original batch
+{"suite":"Transfers, distribution, collection and documents","pass":31,"fail":0}
+PASS A registered delivery uses the original uploaded document and task number
+PASS Return destination and reason are mandatory
+PASS Viewer cannot plan a return
+PASS Planning half-unit return retains courier custody and does not add stock
+PASS Already planned return cannot be duplicated or delivered
+PASS Request next step names the return warehouse
+PASS Cannot close while returned goods are still in custody
+PASS Warehouse acceptance requires courier arrival and warehouse permission
+PASS Evidence from the delivery task cannot silently become return evidence
+PASS Return cannot be received outside project scope
+PASS Partial return acceptance posts only actual amount to selected warehouse
+PASS Half-unit return fully reconciles without changing customer delivery
+PASS Warehouse receipt cannot be posted twice
+PASS Task history records actual half-unit return actors and steps
+PASS Existing partially received request gets an unassigned task without new stock
+PASS Assigning an existing receipt resumes its real partial receipt state
+PASS Preparing existing receipt tasks again cannot reset its state
+{"suite":"Task trace and physical returns","pass":17,"fail":0}
+PASS Partial pickup records 8 actually held and leaves 4 uncollected
+PASS Pickup cannot overdraw held remainder or bypass role
+PASS Saving partial delivery needs no proof or immediate return destination
+PASS Client return is independent of original undelivered custody and can choose warehouse later
+PASS Warehouse cannot accept more than courier physically presented
+PASS Actual partial return acceptance posts one unit and retains four in custody
+PASS Warehouse can record zero accepted without changing stock
+PASS After accepted first drop-off the guide asks courier for remaining drop-off
+PASS Return batches reconcile with no lost quantity and no forced attachment
+PASS Later pickup completes the same task and closes without proof
+PASS Customer return can be recorded after request closure without reopening past stock
+PASS Courier presentation six differs from warehouse accepted four
+PASS Refused warehouse balance stays in custody and can be returned elsewhere
+PASS Simple delivery partial child retains original numbered task and route
+PASS Simple delivery later pickup resumes and closes without any attachment
+{"suite":"Actual quantities and optional evidence","pass":15,"fail":0}
+PASS Screenshot: zero delivered exposes custody 450/50 and no customer-return action
+PASS Role view cannot grant warehouse acceptance to courier or courier drop-off to keeper
+PASS Actual server also rejects invalid customer-return 450 with zero delivered
+PASS Planning return removes already allocated 450 and points to courier drop-off
+PASS Courier drop-off transfers the next action to warehouse only
+PASS Partial warehouse acceptance shows 50 awaiting and 50 custody for this return
+PASS Full warehouse acceptance exits return step to remaining delivery work
+PASS Both returns accepted point to request closure rather than another return
+PASS Reconciled manual task has explicit completion continuation
+PASS Screenshot scenario can finish and remains closed
+{"suite":"Separated role return continuation","pass":10,"fail":0}
+PASS Guided delivery prepares reservation, explicit assignee, optional evidence and route
+PASS Partial delivery asks actual remaining one, without requiring proof
+PASS Courier drop-off advances immediately to keeper actual acceptance
+PASS Partial return acceptance keeps actual remaining 0.5 in the current form
+PASS After custody settles, guide collects uncollected seven rather than zero delivery
+PASS Guided partial pickup/delivery/return sequence reaches closed with no custody
+PASS Screenshot: returned one, delivered zero, stale automatic task goes to completion
+PASS Historical completion posts no stock and opens request closure directly
+PASS Ambiguous historical links and known different source tasks are never attributed
+PASS Distribution partial pickup automatically returns to remaining pickup
+PASS Transfer separates six presented from four accepted and shows two awaiting keeper
+PASS Transfer resumes after refusal and completes only actual accepted quantity
+PASS receipt_order: partial collection proceeds to actual drop-off without requiring full pickup
+PASS customer_return: partial collection proceeds to actual drop-off without requiring full pickup
+PASS Document guide assigns existing numbered task then finishes without a forced attachment
+PASS Direct receipt guide assigns keeper, receives actual batches and closes
+{"suite":"Guided current-action workflows","pass":16,"fail":0}
+PASS Stock selector lists expiry, availability and blocked expired/near-expiry rows
+PASS Invalid second batch rolls back every selected reservation
+PASS Courier and viewer cannot choose reserved stock; project scope still enforced
+PASS Dispatcher can choose later batch and reserve a partial quantity without issuing it
+PASS Warehouse completes multiple-batch reservation with exact request total
+PASS Repeated reservation and duplicate row are rejected
+PASS Actual pickup chooses both batches independently and keeps held 5 + 2
+PASS Customer delivery uses the explicitly selected issued batch
+PASS Delivery selection retains each automatic task and never consumes a sibling task batch
+PASS After one batch custody is exhausted the guide opens another available batch
+PASS Atomic multi-batch delivery rejects excess in later row without consuming earlier row
+PASS Partial multi-batch delivery follows selection order and exact source balances
+PASS Returning selected batches creates separate numbered traceable return tasks
+PASS Batch returns restore only actual accepted quantities and reconcile custody
+PASS Keeper can accept later batch first and only that batch increases destination stock
+PASS Transfer keeps original batches and expiry in destination with zero custody
+PASS purchase_receipt: receipt can record more than one batch without accepting entire order
+PASS receipt_order: receipt can record more than one batch without accepting entire order
+PASS Near-expiry selection cannot exceed cumulative approved quantity across saves
+{"suite":"Explicit multi-batch selection and actual stages","pass":19,"fail":0}
+PASS First guided loading step is the source keeper with an explicit reservation
+PASS Legacy pickup, full load and extended issue cannot bypass the dual protocol
+PASS No departure before either source has independent loading confirmations
+PASS Keeper needs its own mapped warehouse and cannot be replaced by dispatch
+PASS Partial warehouse release requires a reason and cannot exceed its reservation
+PASS Warehouse alone does not change stock, held quantity or courier custody
+PASS A pending cycle cannot be duplicated for the same reservation
+PASS Courier must use an independently authenticated assigned resource account
+PASS Partial independent courier input needs its own reason
+PASS Matching 50/50 posts only fifty once and leaves ten held at the source
+PASS Posted confirmation preserves distinct actors and exact actual quantities
+PASS A repeated courier confirmation cannot post the stock again
+PASS After a partial first-source load the guide leads to the second warehouse
+PASS Second-source independent 40/40 accumulates ninety custody and leaves ten planned
+PASS Departure adds no second stock movement or custody
+PASS Held remaining ten keeps original request open after actual ninety delivery
+PASS Different 55/50 inputs are preserved without stock issue or fabricated custody
+PASS Mismatch blocks departure, repeat overwrite and a new cycle on the same reservation
+PASS Client-supplied keeper/courier identity fields cannot replace authenticated identities
+PASS Owner with broad warehouse scope can record release but cannot supply the courier signature
+PASS Cross-request loading ID and invalid attachment references are rejected
+PASS Posting revalidates physical stock and atomically preserves the pending input on failure
+PASS Legacy requests keep their original pickup guard and guide contracts
+PASS Integrated public engine rejects every old loading shortcut on a dual request
+PASS Integrated engine uses independent signatures and preserves partial source balance
+PASS Pending customer return leads both action and inline guide before remaining loading
+PASS Warehouse acceptance stays the next step despite a held source remainder
+PASS A source keeper cannot accept a return addressed to the other warehouse
+PASS Correct mapped keeper adds only its actual acceptance and cannot close held quantities
+PASS Scoped keeper guide does not follow dangling confirmations from another warehouse
+PASS Mapped courier cannot read or reference another courier task proof on the same request
+PASS Mapped courier cannot depart a shared route for another courier
+PASS Other courier task stop is hidden and direct arrival is rejected
+PASS One confirmed batch does not allow skipping another reserved batch in the same warehouse
+PASS Every original source/batch confirmation posts once before departure
+{"suite":"Separate source loading confirmations","pass":35,"fail":0}

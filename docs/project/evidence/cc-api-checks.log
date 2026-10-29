@@ -1,0 +1,85 @@
+PASS Anonymous API denied
+PASS First unrelated visitor cannot claim owner
+PASS Trusted owner binds identity
+PASS Seed persisted in D1
+PASS Invite creates Contributor membership
+PASS Client role cannot escalate privileges
+PASS Idempotent save replay returns same record
+PASS Second member sees first member shared data
+PASS Stale edit returns conflict
+PASS Concurrent last-stock reservations: one succeeds, one conflicts
+PASS Concurrent reservation never exceeds stock
+PASS Shared R2 file readable by second member
+PASS Repeat issue rejected
+PASS No duplicate stock movement
+PASS Delivery without optional evidence is persisted
+PASS API workflow closes after R2 POD
+PASS 250 rows committed atomically in D1
+PASS Import undo persisted without ledger changes
+PASS Assistant access uses real test membership and allowed commands
+PASS Assistant search returns scoped persisted records
+PASS Assistant details read actual lines
+PASS Assistant preview does not write
+PASS Assistant save persists, refreshes, and opens same request
+PASS Assistant retry writes once
+PASS Assistant stale change rejects without overwriting
+PASS Assistant escalation fails intentionally
+PASS Assistant invalid search rejected
+PASS Assistant missing record fails
+PASS Anonymous assistant API denied
+PASS New tasks persist in shared D1
+PASS Assistant mutations audited with source
+PASS Project scope persisted and filters API snapshot
+PASS Scoped user cannot enumerate imports or memberships
+PASS Direct cross-project update denied
+PASS Manager cannot grant roles
+PASS Outside-scope attachment bytes denied
+PASS Viewer cannot write through assistant endpoint
+PASS Viewer cannot delete even with correct password
+PASS Delete preview reports target and configured protection
+PASS Missing deletion password fails
+PASS Wrong deletion password fails
+PASS Failed deletion preserves record
+PASS Referenced product remains protected
+PASS Confirmed deletion removes exactly unused record
+PASS Shared rate limit persists across requests
+PASS Deletion outcomes audited without passwords
+PASS Operational function enforced on direct request
+PASS Disabled membership loses snapshot immediately
+PASS Full backup contains document bytes and audit
+PASS Full backup excludes invitation tokens
+PASS Restore creates independent dataset
+PASS Restore rebuilds attachments into new dataset keys
+PASS Restore preserves new task relationships
+PASS Restore remaps foreign record references
+PASS Reset retry is idempotent
+PASS Reset preserves backups and empties only new dataset
+PASS Revoked invitation fails
+PASS Training route renders without an account
+PASS Receipt evidence stored in R2
+PASS Receipt retry is idempotent across D1 saves
+PASS Receipt writes exactly one ledger movement
+PASS Closed inbound request persists after fresh snapshot
+PASS Distribution issue retry posts stock once
+PASS Warehouse transfer receipt retry is idempotent
+PASS Mixed request stays open after first warehouse receipt
+PASS Return plan retry creates one numbered return task
+PASS Planning return has no incoming stock movement
+PASS Uploaded return evidence immediately retains its task ID
+PASS Physical return acceptance retry posts half unit once
+PASS Return proof remains the same R2-backed document
+PASS Closed distribution persists source issue and destination receipt
+PASS Partial pickup retry preserves four held and issues eight only once
+PASS Courier six and warehouse four persist separately without attachments
+PASS API prevents warehouse receiving more than actually presented
+PASS Any document type retains bytes and downloads safely as attachment
+PASS Mobile photo upload retains task reference and detected JPEG type
+PASS Restore remaps new source warehouse and task relationships
+PASS Restore remaps return-task and evidence relationships
+PASS Restore remaps actual presentation references
+PASS Multi-batch reservation replay creates exactly one selection
+PASS Chosen later and earlier batches persist with exact 4 + 8 quantities
+PASS Multi-batch actual pickup retries post each selected batch once
+PASS Partial pickup retains actual held 8 and issued 4 by original batches
+PASS Failure in second batch rolls back first movement and database version
+{"pass":84,"fail":0,"mode":"Local Worker + D1 + R2; simulated platform identities, not real ChatGPT accounts"}

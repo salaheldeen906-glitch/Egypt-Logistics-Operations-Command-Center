@@ -1,0 +1,153 @@
+const assert=require('node:assert/strict');
+module.exports=async function({mf,db}){
+ let pass=0;
+ const check=(name,value)=>{assert.ok(value,name);pass++;console.log('PASS',name);};
+ const api=async(path,body,user='owner')=>{
+  const response=await mf.dispatchFetch('http://quantity.local'+path,{method:body?'POST':'GET',headers:{...(user?{'oai-authenticated-user-id':'quantity-'+user,'oai-authenticated-user-email':user+'@quantity.test'}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
+  const raw=await response.text();let data;try{data=JSON.parse(raw);}catch{data={body:raw};}return{status:response.status,data};
+ };
+ const snap=async(user='owner')=>{const result=await api('/api/command-center/state',null,user);assert.equal(result.status,200,JSON.stringify(result));return result.data;};
+ const cmd=async(command,user='owner',operationId=crypto.randomUUID(),version)=>api('/api/command-center/action',{command,operationId,version:version??(await snap()).dataset.version},user);
+ const go=async(command,user='owner')=>{const result=await cmd(command,user);assert.equal(result.status,200,JSON.stringify({command,...result}));return result.data;};
+ check('anonymous quantity writes require authentication',(await api('/api/command-center/action',{command:{type:'propose_quantity_increase'},operationId:crypto.randomUUID(),version:0},null)).status===401);
+ await snap();await go({type:'seed'});
+ let s=(await snap()).state;
+ const p=s.products[0],projectId=p.projectId,otherProjectId=s.projects.find(x=>x.id!==projectId).id,w=s.warehouses[0],w2=s.warehouses[1],ex=s.resources[0],customer=s.customers[0],carrier=s.carriers[0];
+ const addMember=async(name,role,fn,projects=[projectId],warehouseIds=null,resourceIds=null)=>db.batch([
+  db.prepare('INSERT INTO members(user_id,name,role,function,active) VALUES (?,?,?,?,1)').bind('quantity-'+name,'TEST '+name,role,fn),
+  db.prepare('INSERT INTO settings(key,value) VALUES (?,?)').bind('member_scope:quantity-'+name,JSON.stringify(projects)),
+  db.prepare('INSERT INTO settings(key,value) VALUES (?,?)').bind('member_operations:quantity-'+name,JSON.stringify({warehouseIds,resourceIds}))
+ ]);
+ for(const [name,role,fn,projects,warehouses,resources] of [
+  ['pm','contributor','project_manager'],['dispatch','contributor','dispatcher'],['ops','contributor','operations'],
+  ['keeper','contributor','warehouse',[projectId],[w.id]],['rep','contributor','representative',[projectId],null,[ex.id]],
+  ['outsider','contributor','project_manager',[otherProjectId]],['dispatch-w2','contributor','dispatcher',[projectId],[w2.id]],['viewer','viewer','all']
+ ])await addMember(name,role,fn,projects,warehouses,resources);
+ await go({type:'opening',productCode:p.code,warehouseId:w.id,quantity:1000,reason:'Disposable quantity acceptance stock'});
+ const request=async(code,quantity=100)=>{
+  const r=await go({type:'create_request',code,projectId,customerId:customer.id,destination:'TEST address',lines:[{productId:p.id,quantity}]},'pm');
+  await go({type:'submit',requestId:r.id},'pm');await go({type:'approve',requestId:r.id},'ops');
+  return{r,line:(await snap()).state.lines.find(x=>x.requestId===r.id)};
+ };
+ const a=await request('TEST-QUANTITY-PM');
+ let movementCount=(await snap()).state.movements.length;
+ const increase={type:'propose_quantity_increase',requestId:a.r.id,lineId:a.line.id,newQuantity:120,reason:'Customer asks for twenty more',requestedBy:'forged-user',approvedBy:'quantity-pm',status:'approved'};
+ const operationId=crypto.randomUUID(),version=(await snap()).dataset.version;
+ const proposed=await cmd(increase,'dispatch',operationId,version);assert.equal(proposed.status,200,JSON.stringify(proposed));
+ const replay=await cmd(increase,'dispatch',operationId,version);
+ check('increase proposal replay uses original stored result',replay.status===200&&replay.data.replayed&&replay.data.id===proposed.data.id);
+ check('operation identifier cannot be reused with a different increase',(await cmd({...increase,newQuantity:121},'dispatch',operationId)).status===409);
+ s=(await snap()).state;
+ const approvalId=proposed.data.approvalId||proposed.data.id;
+ check('proposing increase neither changes approved demand nor posts stock',s.lines.find(x=>x.id===a.line.id).quantity===100&&s.movements.length===movementCount);
+ check('increase requested quantity remains linked to request and requester',s.approvals.some(x=>x.id===approvalId&&x.requestId===a.r.id&&(x.requestedBy||x.createdBy)==='quantity-dispatch'));
+ check('requester cannot approve their own increase',(await cmd({type:'review_quantity_increase',requestId:a.r.id,approvalId,decision:'approve',reason:'Self approval forbidden'},'dispatch')).status===403);
+ check('storekeeper cannot approve a quantity increase',(await cmd({type:'review_quantity_increase',requestId:a.r.id,approvalId,decision:'approve',reason:'Not authorized'},'keeper')).status===403);
+ check('viewer cannot create a quantity increase',(await cmd({...increase,newQuantity:125},'viewer')).status===403);
+ check('another project cannot inspect or approve the increase',!(await snap('outsider')).state.approvals.some(x=>x.id===approvalId)&&(await cmd({type:'review_quantity_increase',requestId:a.r.id,approvalId,decision:'approve',reason:'Wrong project'},'outsider')).status===403);
+ await go({type:'review_quantity_increase',requestId:a.r.id,approvalId,decision:'approve',reason:'PM authorizes twenty more'},'pm');
+ s=(await snap()).state;
+ check('project manager independently approves increase without stock effect',s.lines.find(x=>x.id===a.line.id).quantity===120&&s.movements.length===movementCount);
+ const approved=s.approvals.find(x=>x.id===approvalId);
+ check('increase retains different requesting and approving identities',approved.status==='approved'&&(approved.approvedBy||approved.reviewedBy)==='quantity-pm'&&(approved.requestedBy||approved.createdBy)==='quantity-dispatch');
+ check('a settled increase cannot be approved twice',(await cmd({type:'review_quantity_increase',requestId:a.r.id,approvalId,decision:'approve',reason:'Duplicate forbidden'},'pm')).status===409);
+ const b=await request('TEST-QUANTITY-DISPATCH');
+ const proposalB=await go({type:'propose_quantity_increase',requestId:b.r.id,lineId:b.line.id,newQuantity:110,reason:'Additional ten'},'pm');
+ await go({type:'review_quantity_increase',requestId:b.r.id,approvalId:proposalB.approvalId||proposalB.id,decision:'approve',reason:'Dispatcher independently approves'},'dispatch');
+ check('logistics dispatcher independently approves increase',(await snap()).state.lines.find(x=>x.id===b.line.id).quantity===110);
+ const rejected=await go({type:'propose_quantity_increase',requestId:b.r.id,lineId:b.line.id,newQuantity:130,reason:'Proposed additional twenty'},'pm');
+ await go({type:'review_quantity_increase',requestId:b.r.id,approvalId:rejected.approvalId||rejected.id,decision:'reject',reason:'Customer did not authorize'},'dispatch');
+ check('rejected increase preserves the previously approved quantity',(await snap()).state.lines.find(x=>x.id===b.line.id).quantity===110);
+ const reconsidered=await go({type:'propose_quantity_increase',requestId:b.r.id,lineId:b.line.id,newQuantity:125,reason:'Revised written customer instruction',priorApprovalId:rejected.approvalId||rejected.id},'pm');
+ check('reconsideration creates a new proposal and preserves rejected original',reconsidered.id!==rejected.id&&(await snap()).state.approvals.find(x=>x.id===(rejected.approvalId||rejected.id)).status==='rejected');
+ const stale=(await snap()).dataset.version;
+ await go({type:'review_quantity_increase',requestId:b.r.id,approvalId:reconsidered.approvalId||reconsidered.id,decision:'approve',reason:'Reconsidered and authorized'},'dispatch');
+ check('stale dataset revision cannot write over newer quantity decision',(await cmd({type:'propose_quantity_increase',requestId:b.r.id,lineId:b.line.id,newQuantity:140,reason:'Stale operation'},'pm',crypto.randomUUID(),stale)).status===409);
+ const raceA=await request('TEST-QUANTITY-RACE-A'),raceB=await request('TEST-QUANTITY-RACE-B');
+ const raceBefore=await snap(),raceRevision=raceBefore.dataset.version;
+ const racing=await Promise.all([
+  cmd({type:'propose_quantity_increase',requestId:raceA.r.id,lineId:raceA.line.id,newQuantity:115,reason:'Concurrent tester A'},'pm',crypto.randomUUID(),raceRevision),
+  cmd({type:'propose_quantity_increase',requestId:raceB.r.id,lineId:raceB.line.id,newQuantity:116,reason:'Concurrent tester B'},'dispatch',crypto.randomUUID(),raceRevision)
+ ]);
+ check('two genuinely concurrent same-revision writes yield one commit and one conflict',racing.filter(x=>x.status===200).length===1&&racing.filter(x=>x.status===409).length===1);
+ const raceAfter=await snap();
+ check('losing concurrent transaction leaves no partial approval or revision',raceAfter.dataset.version===raceRevision+1&&raceAfter.state.approvals.length===raceBefore.state.approvals.length+1);
+ const shortage=await request('TEST-QUANTITY-SHORTAGE',100000);
+ let before=await snap();
+ check('saving an unfulfilled demand never fabricates stock',before.state.lines.find(x=>x.id===shortage.line.id).quantity===100000&&before.state.movements.length===movementCount);
+ const reserve=await cmd({type:'reserve',requestId:shortage.r.id},'dispatch');
+ let after=await snap();
+ check('insufficient stock reservation fails without partial reservation or dataset change',reserve.status===409&&after.dataset.version===before.dataset.version&&!after.state.reservations.some(x=>x.requestId===shortage.r.id));
+ const unavailable=await request('TEST-QUANTITY-INCREASE-STOCK',20);
+ await go({type:'reserve',requestId:unavailable.r.id,batchRows:[{lineId:unavailable.line.id,warehouseId:w.id,batchId:'',quantity:20}]},'dispatch');
+ const unavailableReservation=(await snap()).state.reservations.find(x=>x.requestId===unavailable.r.id);
+ const unavailableIncrease=await go({type:'propose_quantity_increase',requestId:unavailable.r.id,lineId:unavailable.line.id,reservationId:unavailableReservation.id,newQuantity:100000,reason:'Demand increase exceeds all stock'},'pm');
+ before=await snap();
+ const unavailableDecision=await cmd({type:'review_quantity_increase',requestId:unavailable.r.id,approvalId:unavailableIncrease.approvalId||unavailableIncrease.id,decision:'approve',reason:'Permission is not physical stock'},'dispatch');
+ after=await snap();
+ check('approval cannot extend a reservation beyond eligible stock',unavailableDecision.status===409&&after.dataset.version===before.dataset.version&&after.state.lines.find(x=>x.id===unavailable.line.id).quantity===20&&after.state.reservations.find(x=>x.id===unavailableReservation.id).quantity===20);
+ const load=await request('TEST-QUANTITY-DIFFERENCE',100);
+ await go({type:'reserve',requestId:load.r.id,batchRows:[{lineId:load.line.id,warehouseId:w.id,batchId:'',quantity:100}]},'dispatch');
+ s=(await snap()).state;const reservation=s.reservations.find(x=>x.requestId===load.r.id);
+ await go({type:'assign',requestId:load.r.id,reservationId:reservation.id,executorId:ex.id,carrierId:carrier.id},'dispatch');
+ await go({type:'verify_documents',requestId:load.r.id},'ops');
+ const route=await go({type:'create_route',requestIds:[load.r.id],code:'TEST-QUANTITY-ROUTE',name:'TEST independent signatures'},'dispatch');
+ const released=await go({type:'warehouse_release',requestId:load.r.id,reservationId:reservation.id,quantity:100},'keeper');
+ movementCount=(await snap()).state.movements.length;
+ const mismatch=await go({type:'courier_collect',requestId:load.r.id,loadingId:released.loadingId||released.id,quantity:95,reason:'Five boxes missing from actual count',warehouseQuantity:95,warehouseUserId:'quantity-rep'},'rep');
+ s=(await snap()).state;const loadingId=released.loadingId||released.id;
+ check('different signatures create no automatic issue',mismatch.posted===false&&s.movements.length===movementCount);
+ check('original warehouse and courier signatures retain different figures',s.handoffs.some(x=>x.id===loadingId&&x.warehouseQuantity===100&&x.courierQuantity===95));
+ check('courier payload cannot forge warehouse signature identity',s.handoffs.find(x=>x.id===loadingId).warehouseUserId==='quantity-keeper');
+ check('loading mismatch creates an actionable linked exception',s.exceptions.some(x=>x.loadingId===loadingId&&x.type==='loading_difference'&&x.requestId===load.r.id));
+ const difference=s.exceptions.find(x=>x.loadingId===loadingId&&x.type==='loading_difference');
+ check('legacy exception closure cannot bypass protected quantity decision',(await cmd({type:'resolve_exception',id:difference.id,reason:'Legacy bypass forbidden'},'ops')).status===409);
+ check('departure cannot bypass a loading difference',(await cmd({type:'depart',routeId:route.id},'rep')).status===409);
+ check('courier retry with fresh operation cannot double-confirm receipt',(await cmd({type:'courier_collect',requestId:load.r.id,loadingId,quantity:95,reason:'Duplicate forbidden'},'rep')).status===409);
+ check('warehouse actor cannot settle their own stock discrepancy',(await cmd({type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'resolve',acceptedQuantity:95,reason:'Not authorized'},'keeper')).status===403);
+ check('another warehouse scoped reviewer cannot settle hidden source discrepancy',(await cmd({type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'resolve',acceptedQuantity:95,reason:'Not my warehouse'},'dispatch-w2')).status===403);
+ await go({type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'start_review',reason:'Count and signed record under review'},'dispatch');
+ await go({type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'await_decision',reason:'Evidence gathered, awaiting decision'},'dispatch');
+ const settlement={type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'resolve',acceptedQuantity:95,reason:'Both written counts reviewed; accept ninety-five only'};
+ const settleOp=crypto.randomUUID(),settleVersion=(await snap()).dataset.version;
+ const settled=await cmd(settlement,'pm',settleOp,settleVersion);assert.equal(settled.status,200,JSON.stringify(settled));
+ const settledAgain=await cmd(settlement,'pm',settleOp,settleVersion);
+ check('settlement retry is idempotent at actual D1 transaction boundary',settledAgain.status===200&&settledAgain.data.replayed);
+ s=(await snap()).state;
+ check('explicit resolution posts accepted ninety-five exactly once',s.movements.filter(x=>x.loadingId===loadingId&&x.type==='issue').length===1&&s.movements.find(x=>x.loadingId===loadingId&&x.type==='issue').delta===-95);
+ check('resolution preserves original signatures and leaves five reserved',s.handoffs.find(x=>x.id===loadingId).warehouseQuantity===100&&s.handoffs.find(x=>x.id===loadingId).courierQuantity===95&&s.reservations.find(x=>x.id===reservation.id).quantity===5);
+ check('settled difference cannot post again under a new operation',(await cmd(settlement,'pm')).status===409);
+ await go({type:'depart',routeId:route.id},'rep');
+ const beforeLater=(await snap()).state.movements.length;
+ const later=await go({type:'report_loading_difference',requestId:load.r.id,loadingId,quantity:93,category:'damage',reason:'Two of the ninety-five posted boxes were damaged after departure'},'rep');
+ s=(await snap()).state;const laterCase=s.exceptions.find(x=>x.id===(later.exceptionId||later.id));
+ check('later discrepancy counts from posted ninety-five, not original hundred',laterCase.difference===2&&laterCase.afterPosting===true);
+ check('later report cannot overwrite either original signed declaration',s.handoffs.find(x=>x.id===loadingId).warehouseQuantity===100&&s.handoffs.find(x=>x.id===loadingId).courierQuantity===95);
+ const laterDecision=await go({type:'review_loading_difference',requestId:load.r.id,loadingId,decision:'resolve',acceptedQuantity:93,reason:'Damage documented; independent inventory procedure still required'},'dispatch');
+ s=(await snap()).state;
+ check('post-issue loss review never silently creates an adjusting stock movement',s.movements.length===beforeLater&&laterDecision.stockAdjustmentRequired===true);
+ const excess=await request('TEST-QUANTITY-EXCESS',20);
+ await go({type:'reserve',requestId:excess.r.id,batchRows:[{lineId:excess.line.id,warehouseId:w.id,batchId:'',quantity:20}]},'dispatch');
+ s=(await snap()).state;const excessReservation=s.reservations.find(x=>x.requestId===excess.r.id);
+ await go({type:'assign',requestId:excess.r.id,reservationId:excessReservation.id,executorId:ex.id,carrierId:carrier.id},'dispatch');
+ await go({type:'verify_documents',requestId:excess.r.id},'ops');
+ await go({type:'create_route',requestIds:[excess.r.id],code:'TEST-QUANTITY-EXCESS-ROUTE',name:'TEST excess declaration'},'dispatch');
+ const beforeExcess=(await snap()).state.movements.length;
+ const excessive=await go({type:'warehouse_release',requestId:excess.r.id,reservationId:excessReservation.id,quantity:25,reason:'Five extra boxes physically declared; obtain written approval'},'keeper');
+ s=(await snap()).state;
+ check('warehouse excess declaration opens an increase request and no stock posting',!!excessive.approvalId&&s.approvals.some(x=>x.id===excessive.approvalId&&x.status==='pending')&&s.movements.length===beforeExcess);
+ await go({type:'courier_collect',requestId:excess.r.id,loadingId:excessive.loadingId||excessive.id,quantity:25,reason:'I counted twenty-five; increase not yet approved'},'rep');
+ const premature=await cmd({type:'review_loading_difference',requestId:excess.r.id,loadingId:excessive.loadingId||excessive.id,decision:'resolve',acceptedQuantity:25,reason:'Cannot exceed approved reservation'},'pm');
+ check('matching excess signatures cannot issue before the increase is approved',premature.status!==200&&(await snap()).state.movements.length===beforeExcess);
+ await go({type:'review_quantity_increase',requestId:excess.r.id,approvalId:excessive.approvalId,decision:'approve',reason:'Independent PM approves five extra boxes with eligible stock'},'pm');
+ check('increase approval extends held reservation without issuing it',(await snap()).state.reservations.find(x=>x.id===excessReservation.id).quantity===25&&(await snap()).state.movements.length===beforeExcess);
+ await go({type:'review_loading_difference',requestId:excess.r.id,loadingId:excessive.loadingId||excessive.id,decision:'resolve',acceptedQuantity:25,reason:'Approved increase and both actual signatures verified'},'dispatch');
+ s=(await snap()).state;
+ check('approved excess requires its own one-time physical posting',s.movements.filter(x=>x.loadingId===(excessive.loadingId||excessive.id)&&x.type==='issue').length===1&&s.movements.find(x=>x.loadingId===(excessive.loadingId||excessive.id)&&x.type==='issue').delta===-25);
+ check('an approval from another request cannot be substituted',(await cmd({type:'review_quantity_increase',requestId:load.r.id,approvalId,decision:'approve',reason:'Wrong request'},'dispatch')).status!==200);
+ const audit=await db.prepare("SELECT user_id,action,record_id FROM audit WHERE dataset_id='quantity-api-disposable' AND action IN ('propose_quantity_increase','review_quantity_increase','review_loading_difference')").all();
+ check('quantity requests and decisions are retained in the actual audit table',audit.results.some(x=>x.user_id==='quantity-pm'&&x.action==='review_quantity_increase')&&audit.results.some(x=>x.user_id==='quantity-dispatch'&&x.action==='review_loading_difference'));
+ const entities=await db.prepare("SELECT COUNT(*) n FROM entities WHERE dataset_id<>'quantity-api-disposable'").first();
+ check('all acceptance entities remain inside the disposable dataset',entities.n===0);
+ console.log(JSON.stringify({suite:'Quantity control isolated Worker/D1/R2 acceptance; simulated identities',pass,fail:0}));
+};

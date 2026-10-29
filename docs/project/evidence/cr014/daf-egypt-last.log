@@ -1,0 +1,22 @@
+PASS Over-allocation rejects the complete plan atomically
+PASS One request has two products, two sites, two sources and two couriers
+PASS Each task has independent source and quantity limit
+PASS Forged source or executor on a reservation is denied
+PASS Explicit plan reserves exactly and creates assignments without issuing stock
+PASS Plan changes and duplicate reservation are blocked after reservation
+PASS Sender confirmation does not move custody or stock and holds only selected quantity
+PASS Independent receiving account sees its incoming transfer and cannot spoof another
+PASS Two matching signatures split actual custody and task exactly once without stock effect
+PASS A courier cannot consume another destination task even with matching product
+PASS Customer report records recipient, courier, actual quantity and distinct visit numbers
+PASS Return cannot exceed its original delivery occurrence
+PASS Returns report keeps presented five, accepted three and custody two linked to original delivery
+PASS Export applies simultaneous text, number and date filters on server rows
+PASS Product master with expiry creates neither batch nor stock
+PASS Actual receipt atomically creates batch and adds only accepted quantity
+PASS Invalid expiry or duplicate batch mismatch rolls back batch and movement
+PASS Courier source remains a courier and never becomes a supplier
+PASS Distribution can allocate same courier and site from two independent warehouse sources
+PASS Redirected multi-source quantity retains source/task trace and delivers without duplicate issue
+PASS Cancelling an unaccepted handover restores availability without moving ownership
+{"suite":"Egypt allocation/custody/receipts/customer reports","pass":21,"fail":0}

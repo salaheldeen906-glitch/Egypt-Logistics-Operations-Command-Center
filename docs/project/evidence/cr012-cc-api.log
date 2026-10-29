@@ -1,0 +1,29 @@
+PASS Unset pilot isolation flag denies Command Center API
+PASS Without isolated resources the new route is an inactive explanation
+PASS Flag alone cannot point the new API to the old active dataset
+PASS Default all-function contributor is blocked until owner assigns a specific function
+PASS A courier resource cannot be linked silently to a second account
+PASS New Command Center delivery opts into dual-confirmation protocol
+PASS Unassigned courier cannot see this request in Command Center
+PASS The existing snapshot endpoint cannot bypass mapped courier scope
+PASS Keeper scope hides the other warehouse stock
+PASS Legacy full-load shortcut is blocked for dual request
+PASS Wrong keeper cannot confirm another warehouse
+PASS Keeper confirmation alone has no posted issue
+PASS Wrong courier direct-ID collection is denied
+PASS Courier confirmation retry is idempotent in D1
+PASS Stored loading retains two different authenticated accounts
+PASS Fifty actual issued exactly once and ten remains held
+PASS Departure waits for second warehouse
+PASS Departure never posts stock a second time
+PASS Return acceptance credits only three of five actually presented
+PASS Partial return/remaining reservation cannot close original request
+PASS Current-step draft is centrally stored for its account
+PASS A separate local request/session reloads the same saved draft
+PASS Another account with same key cannot read that personal draft
+PASS Concurrent stale draft update is rejected without overwrite
+PASS Saving a draft does not post operational stock or increment dataset version
+PASS Draft record references obey account task scope
+PASS Disabled account immediately loses access to drafts and loading
+PASS Old dataset remains untouched in disposable local fixture
+{"suite":"Isolated Command Center Worker/D1/R2; simulated identities","pass":28,"fail":0}

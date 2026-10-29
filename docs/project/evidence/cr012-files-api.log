@@ -1,0 +1,36 @@
+PASS Command Center rejects reusable unrestricted invitations
+PASS Wrong email cannot redeem recipient-bound invitation
+PASS Wrong recipient did not consume invitation
+PASS Intended recipient joins with explicit read-only role
+PASS Invitation is consumed and replay does not change membership
+PASS Invited member sees selected project only
+PASS Invited viewer cannot create operational records
+PASS One invitation can be revoked without modifying members
+PASS Expired invitation cannot be redeemed
+PASS Courier invitation stores specific operational resource mapping
+Pilot operation failed D1_ERROR: CHECK constraint failed: revision_must_match: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_CHECK)
+PASS Resource cannot be bound to a second account by invitation
+PASS Joining again never silently promotes an existing member
+PASS More than 1000 rows validate without writing data
+PASS Repeated import response is replayed and records are not duplicated
+PASS Invalid boolean is reported with source row and column
+PASS One invalid row rejects the entire import batch
+PASS Explicit import update preserves stock, code and IDs and records prior name
+PASS XLSX export includes all 1105 imported rows beyond table pagination
+PASS XLSX keeps leading-zero codes as exact strings and never emits formulas
+PASS UTF-8 CSV keeps Arabic and neutralizes formula-like text without turning quantities into formulas
+PASS Server rejects internal or sensitive export columns
+PASS All-data export means all permitted records, never all projects
+PASS Viewer can download a scoped XLSX file
+PASS Selected-ID export cannot bypass server project scope
+PASS Export review reports record count before download
+PASS Server filters are applied to the export count
+PASS Changed dataset requires export count review again
+PASS Unsupported text evidence is rejected before R2/database posting
+PASS Renamed PNG with text content is rejected
+PASS Allowed PDF is saved once
+PASS Independent permitted account can fetch authenticated inline preview
+PASS Same saved document remains available for secure attachment download
+PASS Permission revocation takes effect on the next file and export request
+PASS Anonymous export is denied
+{"suite":"File tools and recipient invitations; local Worker/D1/R2, simulated identities","pass":34,"fail":0}

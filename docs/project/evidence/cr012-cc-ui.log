@@ -1,0 +1,13 @@
+PASS Keeper receives the actual warehouse release form linked to its source batch and task
+PASS Courier waits for the keeper and has no form before the source has a release confirmation
+PASS Loading ledger displays two source rows with their own warehouses, planned quantities and expiry
+PASS After warehouse recording the keeper sees an explicit courier wait instead of a second release form
+PASS Courier has an independent empty input and can see the keeper reported fifty without prefilling it
+PASS Owner with all functions cannot supply the courier signature through the guided screen
+PASS Posted partial loading ledger keeps the held remainder visible and suppresses the child issue duplicate
+PASS After the first source the next guided form names the second source and preserves its expiry
+PASS A mismatch shows both independent counts and the unposted reason with no executable form
+PASS Pending return opens the courier drop-off step ahead of the other source loading step
+PASS Presented return leads directly to keeper acceptance while the source-loading ledger stays available
+PASS English rendering preserves the source-specific ledger meaning and current acceptance action
+{"suite":"Command Center server-rendered loading and return screens (not browser QA)","pass":12,"fail":0}
