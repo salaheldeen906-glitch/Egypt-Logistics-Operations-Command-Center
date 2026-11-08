@@ -37,4 +37,24 @@ await test('Transport invoices have issuer/type identity and prevent double cove
 await test('PDF preview terminates in the local adapter with synthetic bytes',async()=>{const response=await sample.fetch('/api/file?id='+fixture.held.documentId+'&preview=1');assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'application/pdf');assert((await response.text()).includes('SYNTHETIC REVIEW ONLY'));});
 await test('Hidden-project attachment cannot be read from local review adapter',async()=>{sample.setActor('scoped_dispatcher');assert.equal((await sample.fetch('/api/file?id='+fixture.issued.documentId+'&preview=1')).status,403);});
 await test('Local upload uses real engine authorization rather than bypassing the read-only role',async()=>{sample.setActor('viewer');const form=new FormData();form.set('file',new File(['%PDF-1.4\nSYNTHETIC ONLY\n%%EOF'],'review.pdf',{type:'application/pdf'}));form.set('requestId',fixture.held.requestId);form.set('purpose','other');form.set('version',String(sample.snapshot().dataset.version));const before=sample.getState().documents.length,response=await sample.fetch('/api/upload',{method:'POST',body:form});assert.equal(response.status,403);assert.equal(sample.getState().documents.length,before);});
+await test('A partial warehouse confirmation isolates 40 of 100 in the actual engine and only the independent handover issues it',async()=>{
+ const f=createExternalReview(),p=externalReviewTransport(f.state,{...f.actors,wrong_warehouse:{...f.actors.warehouse,userId:'WRONG-WAREHOUSE',warehouseIds:[]}},'https://review.invalid');
+ const send=(command,version=p.snapshot().dataset.version,operationId=crypto.randomUUID())=>p.fetch('/api/command-center/action',{method:'POST',body:JSON.stringify({command,version,operationId})});
+ const run=async(command)=>{const response=await send(command),result=await response.json();assert.equal(response.status,200,JSON.stringify(result));return result;};
+ const command=shipment(f.held,'EXT-REVIEW-PARTIAL');command.carrierId=f.carrierId;command.lines[0].quantity=40;
+ const created=await run(command),line=p.getState().handoffs.find(h=>h.type==='external_shipment_line'&&h.shipmentId===created.id);
+ const release={type:'external_warehouse_release',shipmentId:created.id,shipmentLineId:line.id,documentId:f.held.documentId,quantity:40};
+ const stock=p.getState().movements.length;
+ p.setActor('wrong_warehouse');assert.equal((await send(release)).status,403);
+ p.setActor('warehouse');await run(release);
+ const state=p.getState(),childId=state.handoffs.find(h=>h.id===line.id).reservationId,child=state.reservations.find(r=>r.id===childId);
+ assert.equal(state.movements.length,stock);assert.deepEqual([child.quantity,child.status,child.taskId,child.batchId,child.warehouseId,child.originReservationId],[40,'held',f.held.taskId,f.held.batchId,f.warehouseId,f.held.reservationId]);
+ assert.equal((await send({type:'warehouse_release',requestId:f.held.requestId,reservationId:childId,quantity:40})).status,409);
+ p.setActor('dispatcher');const version=p.snapshot().dataset.version,id=crypto.randomUUID(),handover={...release,type:'external_handover',recipient:'سائق تجريبي'};
+ const first=await send(handover,version,id),body=await first.json();assert.equal(first.status,200,JSON.stringify(body));assert.equal(body.handed,40);
+ const replay=await send(handover,version,id);assert.equal(replay.status,200);assert.deepEqual(await replay.json(),body);
+ const after=p.getState(),remainder=after.reservations.find(r=>r.id===f.held.reservationId);
+ assert.deepEqual([remainder.status,remainder.quantity],['held',60]);assert.equal(after.tasks.find(t=>t.id===f.held.taskId).quantity,100);
+ assert.deepEqual(after.movements.slice(stock).map(m=>[m.reservationId,m.delta,m.warehousePerformedBy]),[[childId,-40,f.actors.warehouse.userId]]);
+});
 console.log(JSON.stringify({suite:'External transport isolated actual-engine review adapter',pass,fail:0,scope:'synthetic memory only; not D1/R2 or hosted authentication'}));

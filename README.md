@@ -61,6 +61,19 @@ node scripts/test-external-api.mjs
 
 اختبارات API تستخدم Worker وD1 وR2 محلية بهويات اختبار محاكاة، ولا تثبت تسجيل دخول حسابات حقيقية. نتائج الإصدار المسجلة موجودة في وثيقة الإصدار؛ لم يُعَد اختبار منصة استضافة أخرى أثناء نقل المستودع.
 
+## المعاينات المحلية
+
+بعد `pnpm build`، شغّل:
+
+```sh
+node scripts/build-quantity-review.mjs
+node scripts/build-external-review.mjs
+```
+
+افتح `DAF_Quantity_Control_Isolated_Review.html` داخل `.sites-runtime/quantity-20261022/review/` لمراجعة الكميات وفروق التحميل والتقارير، أو `DAF_External_Transport_Isolated_Review.html` داخل `.sites-runtime/external-20261022/review/` لمراجعة النقل الخارجي. المعاينتان تستخدمان مكونات التطبيق الحالية وبيانات اختبار في ذاكرة المتصفح دون اتصال ببيئة التشغيل.
+
+`DAF_First_Journey_Review.html` نسخة مراجعة مؤرشفة من 13 أكتوبر 2026 يمكن فتحها مباشرة إذا كانت متوفرة لديك. ملف مصدرها `review/first-journey.tsx` غير موجود في هذه اللقطة، لذلك `node scripts/build-first-journey-review.mjs` لا يستطيع إعادة بنائها. معاينة الكميات مسار مراجعة مستقل من الكود الحالي.
+
 ## التخزين والدخول والنشر
 
 - التقنية: React/TypeScript، Vinext/Vite، Cloudflare Workers، D1، R2.

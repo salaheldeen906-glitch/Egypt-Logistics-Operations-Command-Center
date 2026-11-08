@@ -1,15 +1,17 @@
 import {permissionDecision,canViewScreen} from './access-policy';
 import {resolvePasswordIdentity,accessEnabled} from './access-auth';
-import {decorateAccessActor,accessCommitGuards,publicAccessActor} from './access-store';
+import {decorateAccessActor,accessCommitGuards,publicAccessActor,custodyRecipientCandidates} from './access-store';
 import { env } from 'cloudflare:workers';
 import { getChatGPTUser } from '@/app/chatgpt-auth';
-import { type State, type Actor, type Command, kinds, emptyState, demand, DomainError, references } from './model';
+import { type State, type Actor, type Command, kinds, emptyState, demand, DomainError, references, text } from './model';
 import { authorize, execute, validateImport } from './engine';
 import { scopedState, assertScope } from './access';
 import { deletePreview } from './deletion';
 import { verifyDeletePassword } from './delete-security';
 import {requireCommandCenter,requireCommandCenterDataset,commandCenterConfig,requireCommandCenterActor} from './command-center-isolation';
 import {invitationPolicy} from './invitations';
+import {canProposeCustody,custodySource,eligibleCustodyCourier,type CustodyDirectory} from './custody-transfer';
+import {actualAvailable} from './actual-quantities';
 export const runtime = () => env as Cloudflare.Env & {
     PILOT_OWNER_EMAIL?: string;
     DELETE_PASSWORD_HASH?: string;
@@ -58,8 +60,26 @@ export async function loadState(datasetId: string) { const results = await db().
         data: string;
     }[])
         s[kinds[i]].push(JSON.parse(r.data)); return s; }
+async function custodyDirectory(a:Actor,datasetId:string,active:State,visible:State):Promise<CustodyDirectory>{
+    if(!canProposeCustody(a))return {};
+    const visibleRequests=new Set(visible.requests.map(r=>r.id));
+    const sources=visible.reservations.flatMap(res=>{
+        const {request,task,fromId}=custodySource(active,res);
+        return res.status==='issued'&&request&&visibleRequests.has(request.id)&&request.status!=='closed'&&task&&task.status!=='completed'&&a.resourceIds!.includes(fromId)&&actualAvailable(active,res)>=1?[[res.id,request] as const]:[];
+    });
+    if(!sources.length)return {};
+    const recipients=await custodyRecipientCandidates(a,datasetId),byProject=new Map<string,CustodyDirectory[string]>();
+    return Object.fromEntries(sources.map(([id,request])=>{
+        let list=byProject.get(request.projectId);
+        if(!list){
+            list=active.resources.filter(courier=>recipients.some(({actor})=>eligibleCustodyCourier(a,actor,request,courier))).map(({id,name})=>({id,name}));
+            byProject.set(request.projectId,list);
+        }
+        return [id,list];
+    }));
+}
 export async function readSnapshot(a: Actor) {
-    const d = await dataset(), s = scopedState(await loadState(d.id), a);
+    const d = await dataset(), active = await loadState(d.id), s = scopedState(active, a);
     const history = await stmt('SELECT a.*,m.name as actor FROM audit a LEFT JOIN members m ON m.user_id=a.user_id WHERE a.dataset_id=? ORDER BY a.at DESC LIMIT 200', d.id).all<any>();
     const visibleIds = new Set(kinds.flatMap(k => s[k].map(r => r.id)));
     const audit = history.results.filter(r => a.access?.enabled ? permissionDecision(a,'audit.view').allowed&&(a.platformOwner===true||visibleIds.has(r.record_id)) : a.role==='owner' || a.projectIds==null&&a.warehouseIds==null&&a.resourceIds==null || visibleIds.has(r.record_id)).map(({details,...r})=>({...r,channel:JSON.parse(details||'{}').channel||'interface'}));
@@ -67,7 +87,7 @@ export async function readSnapshot(a: Actor) {
     const backups = a.role === 'owner' ? (await stmt('SELECT id,at,dataset_id as datasetId FROM backups ORDER BY at DESC LIMIT 30').all()).results : [];
     const invite = a.role === 'owner' ? await stmt('SELECT expires,active FROM invitations ORDER BY rowid DESC LIMIT 1').first() : null;
     const invitations=a.role==='owner'?(await stmt("SELECT i.id,i.expires,i.active,p.value as policy FROM invitations i JOIN settings p ON p.key='invitation_policy:'||i.id ORDER BY i.rowid DESC LIMIT 100").all<any>()).results.map(({policy,...i})=>({...i,...JSON.parse(policy)})).filter(i=>i.datasetId===d.id):[];
-    return { dataset:d, state:s, actor:publicAccessActor(a), courierDirectory:(a.access?.enabled?s.resources.map(x=>({id:x.id,name:x.name})):a.function==='representative'?(await stmt('SELECT data FROM resources').all<any>()).results.map(x=>JSON.parse(x.data)).map(x=>({id:x.id,name:x.name})):s.resources.map(x=>({id:x.id,name:x.name}))), members:team, audit, backups, invite, invitations, deleteConfigured:!!runtime().DELETE_PASSWORD_HASH, syncSeconds:20, serverTime:new Date().toISOString() };
+    return { dataset:d, state:s, actor:publicAccessActor(a), courierDirectory:await custodyDirectory(a,d.id,active,s), members:team, audit, backups, invite, invitations, deleteConfigured:!!runtime().DELETE_PASSWORD_HASH, syncSeconds:20, serverTime:new Date().toISOString() };
 }
 export async function boundedBody(req: Request, limit = 3000000) { const reader = req.body?.getReader(); demand(reader, 'Request body required'); const parts: Uint8Array[] = []; let length = 0; for (;;) {
     const { value, done } = await reader.read();
@@ -98,10 +118,23 @@ export function failure(e: any) { if (e instanceof DomainError)
     return json({ error: e.message, code: e.code }, e.status); console.error('Pilot operation failed', {code:'UNEXPECTED'}); if (/revision_must_match/.test(e?.message || ''))
     return json({ error: 'Another teammate updated the dataset. Refresh, review and retry / تغيرت البيانات؛ حدّث وراجع ثم أعد المحاولة', code: 'CONFLICT' }, 409); if (/UNIQUE constraint/.test(e?.message || ''))
     return json({ error: 'Duplicate code or operation / كود أو إجراء مكرر', code: 'DUPLICATE' }, 409); return json({ error: 'Save failed. Your input is preserved / تعذر الحفظ؛ مدخلاتك محفوظة في النموذج', code: 'SERVER' }, 503); }
+type PendingUpload = {
+    datasetId: string;
+    contentKey: string;
+    store: () => Promise<unknown>;
+    discard: () => Promise<unknown>;
+};
+function uploadWriteRolledBack(error: unknown) {
+    return error instanceof Error && /CHECK constraint failed:\s*revision_must_match\b|UNIQUE constraint failed:/.test(error.message);
+}
+async function discardUpload(upload: PendingUpload) {
+    try { await upload.discard(); }
+    catch { console.error('Attachment cleanup failed', { code: 'UPLOAD_CLEANUP' }); }
+}
 export async function commit(a: Actor, d: {
     id: string;
     version: number;
-}, before: State, after: State, c: Command, key: string, payloadHash: string, result: any, extra: D1PreparedStatement[] = []) {
+}, before: State, after: State, c: Command, key: string, payloadHash: string, result: any, extra: D1PreparedStatement[] = [], upload?: PendingUpload) {
     const changed = kinds.flatMap(k => after[k].filter(r => JSON.stringify(r) !== JSON.stringify(before[k].find(x => x.id === r.id))).map(r => ({ ...r, kind: k, data: JSON.stringify(r) })));
     const deleted = kinds.flatMap(k => before[k].filter(r => !after[k].some(x => x.id === r.id)).map(r => r.id));
     const changedIds = changed.map(r => r.id);
@@ -124,14 +157,30 @@ export async function commit(a: Actor, d: {
     statements.unshift(...accessGuards);
     // Guards are transaction-local rows. Delete them inside the same atomic batch.
     if(accessGuards.length)statements.push(stmt("DELETE FROM transaction_guards WHERE id LIKE ?",key+':access-daf:%'));
-    await db().batch(statements);
+    const database = db();
+    if (upload) {
+        try { await upload.store(); }
+        catch (error) {
+            // The database batch has not been sent; it cannot reference this attempt.
+            await discardUpload(upload);
+            throw error;
+        }
+    }
+    try {
+        await database.batch(statements);
+    } catch (error) {
+        // Constraint failures roll back the D1 batch. A transport error can
+        // leave the commit outcome unknown; keep the file in that case.
+        if (upload && uploadWriteRolledBack(error)) await discardUpload(upload);
+        throw error;
+    }
     return out;
 }
-export async function act(a: Actor, body: any, internalUpload = false) {
+export async function act(a: Actor, body: any, upload?: PendingUpload) {
     const c = body.command as Command;
     demand(c && typeof c.type === 'string', 'Command required');
     if(c.loadingProtocol==='dual'||['warehouse_release','courier_collect','propose_quantity_increase','review_quantity_increase','report_loading_difference','review_loading_difference'].includes(c.type)){requireCommandCenter();await dataset();}
-    demand(c.type !== 'upload' || internalUpload, 'Use the attachment endpoint', 'INVALID', 400);
+    demand(c.type !== 'upload' || upload, 'Use the attachment endpoint', 'INVALID', 400);
     authorize(a, c);
     if(accessEnabled()&&['member','invite','revoke_invite','revoke_invites'].includes(c.type))demand(a.platformOwner===true,'Use scoped account administration / استخدم إدارة الحسابات ضمن التفويض','FORBIDDEN',403);
     const deleting = c.type === 'delete' || c.type === 'undo_import';
@@ -147,18 +196,23 @@ export async function act(a: Actor, body: any, internalUpload = false) {
     if (c.type === 'import')
         c.signature = await hash(JSON.stringify({ kind: c.kind, mode:c.mode||'add', rows: c.rows }));
     const d = await dataset();
+    if (upload) demand(upload.datasetId === d.id, 'Dataset changed. Refresh and retry / تغيّرت مجموعة البيانات؛ حدّث وأعد المحاولة', 'CONFLICT', 409);
     const op = body.operationId;
     demand(typeof op === 'string' && /^[a-zA-Z0-9-]{8,80}$/.test(op), 'Valid operation identifier required');
     const key = d.id + ':' + a.userId + ':' + op;
-    const payloadHash = await hash(JSON.stringify(c));
-    const previous = await stmt('SELECT hash,result FROM operations WHERE key=?', key).first<{
-        hash: string;
-        result: string;
-    }>();
-    if (previous) {
+    // Use the original content-based key as the intent fingerprint. This
+    // keeps replay compatible with uploads committed before unique R2 keys.
+    const intent = upload ? { ...c, file: { ...c.file, key: upload.contentKey } } : c;
+    const payloadHash = await hash(JSON.stringify(intent));
+    const replay = async () => {
+        const previous = await stmt('SELECT hash,result FROM operations WHERE key=?', key).first<{hash: string; result: string}>();
+        if (!previous) return null;
         demand(previous.hash === payloadHash, 'Operation ID reused with different input', 'IDEMPOTENCY', 409);
+        if (upload) assertScope(await loadState(d.id), a, c);
         return { ...JSON.parse(previous.result), replayed: true };
-    }
+    };
+    const previous = await replay();
+    if (previous) return previous;
     demand(Number.isInteger(body.version) && body.version === d.version, 'Data changed. Refresh and retry / تغيرت البيانات؛ حدّث وأعد المحاولة', 'CONFLICT', 409);
     const s = await loadState(d.id);
     assertScope(s, a, c);
@@ -207,6 +261,22 @@ export async function act(a: Actor, body: any, internalUpload = false) {
     }
     if (c.type === 'revoke_invites')
         return commit(a, d, s, s, c, key, payloadHash, {}, [stmt('UPDATE invitations SET active=0')]);
+    let custodyGuards:D1PreparedStatement[]=[];
+    if(c.type==='propose_custody'){
+        const reservationId=text(c.reservationId),targetId=text(c.toId);
+        const reservation=s.reservations.find(r=>r.id===reservationId),request=s.requests.find(r=>r.id===reservation?.requestId),target=s.resources.find(r=>r.id===targetId);
+        const recipient=request&&target&&(await custodyRecipientCandidates(a,d.id)).find(({actor})=>eligibleCustodyCourier(a,actor,request,target));
+        demand(recipient,'Receiving courier is outside the eligible scope / المندوب المستلم غير متاح لنقل عهدة هذا الطلب','FORBIDDEN',403);
+        custodyGuards=recipient.commitGuards(key);
+    }
     const next = execute(s, a, c);
-    return commit(a, d, s, next.state, c, key, payloadHash, next.result);
+    const write = commit(a, d, s, next.state, c, key, payloadHash, next.result, custodyGuards, upload);
+    if (!upload) return write;
+    try { return await write; }
+    catch (error) {
+        // A simultaneous retry can commit while this request loses the version race.
+        const committed = uploadWriteRolledBack(error) ? await replay() : null;
+        if (committed) return committed;
+        throw error;
+    }
 }

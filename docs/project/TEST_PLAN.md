@@ -38,7 +38,7 @@ All tests use disposable local datasets or source/SSR/parser checks. No real pla
 | Independent XLSX file inspection | Import the generated XLSX in another spreadsheet engine; compare first code000000, last001104, Arabic row | pass — read-only artifact-tool import. Native Microsoft Excel is unavailable. The renderer displays numeric-looking strings without zero padding despite exact imported values; actual XML/string typing is verified, native Excel display acceptance remains pending |
 | Columns DAF-031 | Unknown preferences rejected, mandatory columns cannot be hidden, keyboard order/reset and native row inputs preserved | pass — `cr012-files-ui.log`; SSR/pure helpers. Browser persistence/reorder click and mobile/keyboard journey not tested |
 | Proof DAF-033 | Reject text/renamed file before posting; permitted second identity reads inline/download; permission revocation denies next request | pass — `cr012-files-api.log`; 5MB content-signature/extension/MIME checks. No antivirus/full-semantic validation |
-| First journey / DAF-035 | Use actual component/domain code for review without external sign-in | standalone HTML build passed, 0 external src/import references; browser interaction/visual acceptance not tested |
+| First journey / DAF-035 | Use actual component/domain code for review without external sign-in | historical pass on 2026-10-13: standalone HTML had 0 external src/import references; exact rebuild is blocked in this checkout (missing `review/first-journey.tsx`); browser interaction/visual acceptance not tested |
 | Preserved operational regression | Domain/role/CC/local API, including loading differences, distinct signatures, held/issued quantities and returns | pass — retained and newly rerun suites |
 
 Final automated counts: **230 domain + 31 component SSR/helper + 146 local Worker/D1/R2 + 7 CSV/XLSX parser = 414 passing checks, zero failing checks**. TypeScript, production build and `git diff --check` pass separately. The independent spreadsheet import inspection is additional evidence and is not counted in 414.
@@ -56,8 +56,9 @@ npm run build
 node scripts/test-api.mjs
 node scripts/test-command-center-api.mjs
 node scripts/test-file-workspace-api.mjs
-node scripts/build-first-journey-review.mjs
+node scripts/build-quantity-review.mjs
 ```
+The last command builds the current isolated quantity/loading preview. It does not rebuild the archived `DAF_First_Journey_Review.html`. The legacy command reports the missing source explicitly; the archived HTML can still be opened directly.
 The local API scripts create in-memory Miniflare DB/R2 and simulated platform identities; they never execute hosted migration/seed/reset. Root/CC source checks do not prove real shared authentication, actual devices, screen reader, camera, zoom or PDF preview appearance. Operational/design acceptance, DEC-001 and DEC-002 remain open.
 
 ## CR-014 — Egypt release checks

@@ -68,21 +68,37 @@ function refresh(s:State,h:Row,now:string){
  if(!lines.some(l=>Number(l.handedQuantity)>0))return;
  h.actualLoadAt=h.actualLoadAt||now;
  const complete=lines.every(l=>{const m=externalLineMetrics(s,l);return m.unhanded===0&&m.custody===0&&m.pendingReturn===0;});
+ const wasComplete=['delivered','returned','completed'].includes(h.status);
  const delivered=sum(s.deliveries.filter(d=>d.shipmentId===h.id));
  h.status=complete?(delivered===sum(lines)?'delivered':delivered===0?'returned':'completed'):'in_transit';
  const deliveryTimes=s.deliveries.filter(d=>d.shipmentId===h.id).map(d=>d.deliveredAt||d.createdAt).filter(Boolean).sort();
  if(deliveryTimes.length)h.actualDeliveryAt=deliveryTimes.at(-1);
- if(complete)h.actualCompletionAt=now;else delete h.actualCompletionAt;
+ if(complete){
+  if(!h.actualCompletionAt)h.actualCompletionAt=now;
+  else if(!wasComplete)h.recompletedAt=now;
+ }
  for(const requestId of h.requestIds||[]){const r=s.requests.find(r=>r.id===requestId);if(!r)continue;
   const tasks=s.tasks.filter(t=>t.requestId===r.id&&['delivery','allocation'].includes(t.taskType));
-  for(const t of tasks){const q=sum(s.deliveries.filter(d=>d.taskId===t.id))+sum(s.returns.filter(x=>(x.sourceTaskId===t.id||x.taskId===t.id)&&x.source==='custody'));if(round(q)===round(t.quantity)){t.status='completed';t.completedAt=now;}}
-  for(const p of r.distributionPlans||[]){const planned=tasks.filter(t=>t.distributionPlanId===p.id);if(planned.length&&planned.every(t=>t.status==='completed')){p.status='completed';p.completedAt=now;}}
+  for(const t of tasks){const q=sum(s.deliveries.filter(d=>d.taskId===t.id))+sum(s.returns.filter(x=>(x.sourceTaskId===t.id||x.taskId===t.id)&&x.source==='custody'));if(round(q)===round(t.quantity)){t.status='completed';t.completedAt||=now;}}
+  for(const p of r.distributionPlans||[]){const planned=tasks.filter(t=>t.distributionPlanId===p.id);if(planned.length&&planned.every(t=>t.status==='completed')){p.status='completed';p.completedAt||=now;}}
   if(r.status==='closed'||!['delivery','distribution','warehouse_transfer'].includes(r.requestType||'delivery'))continue;
   if(tasks.length&&tasks.every(t=>t.status==='completed'))r.status=['distribution','warehouse_transfer'].includes(r.requestType)?'ready_to_close':'delivered';else if(!['draft','review','closed'].includes(r.status))r.status='delivering';
  }
 }
 function ownSender(a:Actor,l:Row){if(a.function==='representative')demand(a.resourceIds?.includes(l.executorId),'العهدة لا تخص مندوب هذا الحساب','FORBIDDEN',403);}
 function noOtherExecution(s:State,l:Row,h:Row){const res=row(s,'reservations',l.reservationId),m=externalLineMetrics(s,l);demand(availableForShipment(s,res,h.id)>=round(m.planned-m.delivered-m.returnedCustody),'تغيرت العهدة أو التنفيذ؛ راجع بنود الشحنة قبل التأكيد');return res;}
+function isolateHeldShipmentQuantity(s:State,res:Row,l:Row,add:Add){
+ // The caller has already validated the hold, planned amount and competing allocations.
+ demand(!res.externalShipmentId&&!s.movements.some(m=>m.reservationId===res.id)&&!s.deliveries.some(d=>d.reservationId===res.id)&&!s.returns.some(r=>r.reservationId===res.id)&&!s.handoffs.some(e=>e.type==='external_event'&&e.eventType==='handover'&&e.reservationId===res.id),'يوجد تنفيذ مخزني أو تسليم مسجل لهذا الحجز؛ لا يمكن تقسيمه هنا','STATE',409);
+ const {id,code,createdAt,createdBy,createdByName,...source}=res;
+ const remainingReservedQuantity=round(res.quantity-l.quantity);
+ const isolated=add('reservations',{...source,quantity:l.quantity,taskId:l.taskId,originReservationId:res.originReservationId||id});
+ const assignments=s.assignments.filter(a=>a.reservationId===id);
+ for(const {id,code,createdAt,createdBy,createdByName,...assignment} of assignments)add('assignments',{...assignment,reservationId:isolated.id});
+ res.quantity=remainingReservedQuantity;
+ l.reservationId=isolated.id;
+ return {originReservationId:id,remainingReservedQuantity};
+}
 function actualQuantity(value:unknown){demand(value!==''&&value!=null,'أدخل الكمية الفعلية');const q=Number(value);demand(Number.isFinite(q)&&q>=0&&q<=1000000&&Math.abs(q*1000-Math.round(q*1000))<0.0000001,'الكمية الفعلية صفر أو أكثر وحتى ثلاث منازل عشرية');return q;}
 
 export function executeExternalTransport(s:State,a:Actor,c:Command,now:string,add:Add):Record<string,any>|null{
@@ -171,7 +187,9 @@ export function executeExternalTransport(s:State,a:Actor,c:Command,now:string,ad
   demand(h.status==='draft'&&res.status==='held'&&m.handed===0,'تأكيد المخزن لكمية محجوزة لم يبدأ تسليمها');noOtherExecution(s,l,h);
   const earlier=s.handoffs.filter(e=>e.type==='external_event'&&e.shipmentLineId===l.id&&e.eventType==='warehouse_release');
   const reason=q!==l.quantity||earlier.length?text(c.reason,1000):optional(c.reason,1000);
-  return {id:event('warehouse_release',l,{quantity:q,documentId:doc!.id,reason,supersedesId:earlier.at(-1)?.id||'',matchesPlanned:q===l.quantity}).id,pending:q!==l.quantity};
+  // Leave drafts editable and split only when the warehouse confirms the planned partial quantity.
+  const split=q===l.quantity&&q<res.quantity?isolateHeldShipmentQuantity(s,res,l,add):{};
+  return {id:event('warehouse_release',l,{quantity:q,documentId:doc!.id,reason,supersedesId:earlier.at(-1)?.id||'',matchesPlanned:q===l.quantity,...split}).id,pending:q!==l.quantity};
  }
  if(c.type==='external_handover'){
   const recipient=text(c.recipient);let senderName='';
@@ -179,6 +197,7 @@ export function executeExternalTransport(s:State,a:Actor,c:Command,now:string,ad
    demand(a.function!=='representative','مسؤول الحركة يؤكد استلام الناقل المستقل');
    const confirmation=s.handoffs.filter(e=>e.type==='external_event'&&e.shipmentLineId===l.id&&e.eventType==='warehouse_release').at(-1);
    demand(confirmation&&confirmation.recordedBy!==a.userId,'يلزم تأكيد مستقل من المخزن قبل إثبات استلام الناقل');
+   demand(!(confirmation.quantity===q&&q===l.quantity&&q<res.quantity),'هذا تأكيد قديم لشحنة جزئية. يعيد أمين المخزن تأكيد الكمية المخططة مع سبب التصحيح قبل تسجيل استلام الناقل','STATE',409);
    if(confirmation.quantity!==q||q!==l.quantity||q!==res.quantity){const difference=event('handover_difference',l,{quantity:q,warehouseQuantity:confirmation.quantity,plannedQuantity:l.quantity,documentId:doc!.id,recipient,reason:text(c.reason,1000),warehouseConfirmationId:confirmation.id});return {id:difference.id,pending:true,issued:0};}
    noOtherExecution(s,l,h);
    const p=row(s,'products',res.productId),b=s.batches.find(b=>b.id===res.batchId);

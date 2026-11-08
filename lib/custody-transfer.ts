@@ -1,12 +1,28 @@
 import {type State,type Actor,type Command,type Kind,type Row,demand,qty,row,text} from './model';
 import {actualAvailable} from './actual-quantities';
+import {permissionDecision} from './access-policy';
+export type CustodyDirectory=Record<string,{id:string;name:string}[]>;
+export const custodyExecutor=(s:State,res:Row)=>res.executorId||s.assignments.find(x=>x.reservationId===res.id)?.executorId;
+export function canProposeCustody(a:Actor){
+ return a.function==='representative'&&!!a.resourceIds?.length&&permissionDecision(a,'trips.propose_custody').allowed;
+}
+export function custodySource(s:State,res:Row){
+ const request=s.requests.find(r=>r.id===res.requestId),task=s.tasks.find(t=>t.id===res.taskId)||s.tasks.find(t=>t.reservationId===res.id),fromId=custodyExecutor(s,res);
+ return {request,task,fromId};
+}
+export function eligibleCustodyCourier(sender:Actor,recipient:Actor,request:Row,courier:Row){
+ return recipient.userId!==sender.userId&&!sender.resourceIds?.includes(courier.id)&&recipient.function==='representative'
+  &&!!recipient.resourceIds?.includes(courier.id)&&(!recipient.projectIds||recipient.projectIds.includes(request.projectId))
+  &&(!courier.function||courier.function==='representative')&&(!courier.projectId||courier.projectId===request.projectId)
+  &&permissionDecision(recipient,'trips.accept_custody').allowed&&permissionDecision(recipient,'orders.view').allowed;
+}
 type Add=(k:Kind,v:Record<string,any>)=>Row;
 export function transferCustody(s:State,a:Actor,c:Command,now:string,add:Add):Record<string,any>|null{
  if(!['propose_custody','accept_custody','cancel_custody'].includes(c.type))return null;
  demand(a.function==='representative'&&Array.isArray(a.resourceIds)&&a.resourceIds.length,'نقل العهدة بتأكيد حساب المندوب المرتبط فقط','FORBIDDEN',403);
  if(c.type==='propose_custody'){
- const res=row(s,'reservations',text(c.reservationId)),r=row(s,'requests',res.requestId),assignment=s.assignments.find(x=>x.reservationId===res.id),fromId=res.executorId||assignment?.executorId;
- demand(a.resourceIds.includes(fromId),'المندوب المسلم لا يملك هذه العهدة','FORBIDDEN',403);demand(res.status==='issued'&&r.status!=='closed','نقل العهدة بعد التحميل فقط');const target=row(s,'resources',text(c.toId));demand(target.id!==fromId,'اختر مندوبًا مختلفًا');const task=s.tasks.find(t=>t.id===res.taskId)||s.tasks.find(t=>t.reservationId===res.id);demand(task&&task.status!=='completed','مهمة مفتوحة مطلوبة');const q=qty(c.quantity);demand(q<=actualAvailable(s,res),'الكمية أكبر من العهدة غير المسلمة أو المنتظرة');
+ const res=row(s,'reservations',text(c.reservationId)),r=row(s,'requests',res.requestId),{fromId,task}=custodySource(s,res);
+ demand(a.resourceIds.includes(fromId),'المندوب المسلم لا يملك هذه العهدة','FORBIDDEN',403);demand(res.status==='issued'&&r.status!=='closed','نقل العهدة بعد التحميل فقط');const target=row(s,'resources',text(c.toId));demand(!a.resourceIds.includes(target.id),'اختر مندوبًا بحساب مستقل','FORBIDDEN',403);demand(task&&task.status!=='completed','مهمة مفتوحة مطلوبة');const q=qty(c.quantity);demand(q<=actualAvailable(s,res),'الكمية أكبر من العهدة غير المسلمة أو المنتظرة');
  return {id:add('handoffs',{type:'custody_transfer',status:'awaiting_receiver',requestId:r.id,taskId:task.id,reservationId:res.id,fromId,fromName:row(s,'resources',fromId).name,toId:target.id,toName:target.name,executorId:fromId,quantity:q,reason:text(c.reason),senderUserId:a.userId,sentAt:now,productId:res.productId,batchId:res.batchId,warehouseId:res.warehouseId}).id};
  }
  const h=row(s,'handoffs',text(c.transferId));demand(h.type==='custody_transfer'&&h.status==='awaiting_receiver','طلب النقل مؤكد أو غير موجود');if(c.type==='cancel_custody'){demand(a.resourceIds.includes(h.fromId)||a.resourceIds.includes(h.toId),'النقل لا يخص حسابك','FORBIDDEN',403);h.status='cancelled';h.cancelledAt=now;h.cancelledBy=a.userId;h.cancelReason=text(c.reason);return {id:h.id};}
