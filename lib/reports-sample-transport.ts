@@ -9,7 +9,7 @@ export function reportsSampleTransport(initial:State,origin:string){
  const datasetId='DEMO-reports-local-800-customers-2000-products-v1';
  const drafts=new Map<string,{revision:number;value:unknown}>();
  const json=(data:unknown,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});
- const snapshot=()=>({dataset:{id:datasetId,name:'بيانات وهمية معزولة — لا بيانات تشغيل',version},state,actor,members:[actor],audit:[],backups:[],invitations:[],courierDirectory:state.resources,deleteConfigured:false,syncSeconds:20,serverTime:'2026-10-21T12:00:00Z'});
+ const snapshot=()=>({dataset:{id:datasetId,name:'بيانات وهمية معزولة — لا بيانات تشغيل',version},state,actor,members:[actor],audit:[],backups:[],invitations:[],courierDirectory:{},deleteConfigured:false,syncSeconds:20,serverTime:'2026-10-21T12:00:00Z'});
  const denied=()=>json({error:'هذه تجربة بيانات وهمية معزولة؛ لا اتصال بالنظام الفعلي. المتاح: التقارير والتصدير وتعديل الفروع داخل هذه الصفحة فقط.',code:'DEMO_ISOLATED'},403);
  const fetch:typeof globalThis.fetch=async(input,init={})=>{
   try{

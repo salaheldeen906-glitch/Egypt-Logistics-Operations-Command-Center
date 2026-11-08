@@ -45,10 +45,30 @@ try{
  const allCustomers={kind:'requests',columns:['code','destination'],scope:'all',format:'xlsx',preview:true};const requestCount=await api('/api/export',allCustomers);ok('Export review reports record count before download',requestCount.data.count===data.state.requests.length);
  const filtered={...allCustomers,scope:'filtered',filters:{...filters,project:otherProject.id}};ok('Server filters are applied to the export count',(await api('/api/export',filtered)).data.count===data.state.requests.filter(r=>r.projectId===otherProject.id).length);
  await go({type:'master',kind:'customers',data:{code:'AFTER-PREVIEW',name:'After preview'}});ok('Changed dataset requires export count review again',(await api('/api/export',{...exportBody,version:restricted.data.version},'viewer')).status===409);
- async function upload(name,bytes,mime='application/octet-stream',user='owner') {const state=await snapshot(),form=new FormData();form.set('file',new File([bytes],name,{type:mime}));form.set('purpose','other');form.set('requestId',ref.id);form.set('version',String(state.dataset.version));form.set('operationId',crypto.randomUUID());const req=new Request('http://files.local/api/upload',{method:'POST',headers:headers(user),body:form}),r=await mf.dispatchFetch(req.url,{method:'POST',headers:Object.fromEntries(req.headers),body:new Uint8Array(await req.arrayBuffer())});return {status:r.status,data:await r.json()};}
+ async function upload(name,bytes,mime='application/octet-stream',user='owner',options={}) {const state=await snapshot(),form=new FormData();form.set('file',new File([bytes],name,{type:mime}));form.set('purpose','other');form.set('requestId',ref.id);form.set('version',String(options.version??state.dataset.version));form.set('operationId',options.operationId??crypto.randomUUID());const req=new Request('http://files.local/api/upload',{method:'POST',headers:headers(user),body:form}),r=await mf.dispatchFetch(req.url,{method:'POST',headers:Object.fromEntries(req.headers),body:new Uint8Array(await req.arrayBuffer())});return {status:r.status,data:await r.json()};}
  const count=(await snapshot()).state.documents.length;ok('Unsupported text evidence is rejected before R2/database posting',(await upload('notes.txt','text only')).status===415&&(await snapshot()).state.documents.length===count);
  ok('Renamed PNG with text content is rejected',(await upload('forged.png','not a PNG','image/png')).status===415);
- const doc=await upload('proof.pdf','%PDF-1.4\nTEST ONLY\n%%EOF','application/pdf');ok('Allowed PDF is saved once',doc.status===200&&(await snapshot()).state.documents.length===count+1);
+ const proofBytes='%PDF-1.4\nTEST ONLY\n%%EOF',proofType='application/pdf',storage=await mf.getR2Bucket('BUCKET');
+ const objectKeys=async()=> (await storage.list()).objects.map(x=>x.key).sort();
+ const beforeUpload=await objectKeys(),uploadVersion=(await snapshot()).dataset.version;
+ const stale=await upload('stale.pdf',proofBytes,proofType,'owner',{version:uploadVersion-1});
+ ok('Stale upload returns a conflict without an R2 object or D1 document',stale.status===409&&stale.data.code==='CONFLICT'&&(await snapshot()).state.documents.length===count&&JSON.stringify(await objectKeys())===JSON.stringify(beforeUpload));
+ const operationId=crypto.randomUUID(),doc=await upload('proof.pdf',proofBytes,proofType,'owner',{operationId,version:uploadVersion});
+ ok('Allowed PDF is saved once',doc.status===200&&(await snapshot()).state.documents.length===count+1);
+ const afterUpload=await objectKeys();
+ const uploadReplay=await upload('proof.pdf',proofBytes,proofType,'owner',{operationId,version:uploadVersion});
+ ok('Retry with the original operation ID returns the saved attachment without adding an object',uploadReplay.status===200&&uploadReplay.data.replayed&&uploadReplay.data.id===doc.data.id&&(await snapshot()).state.documents.length===count+1&&JSON.stringify(await objectKeys())===JSON.stringify(afterUpload));
+ await db.prepare("CREATE TRIGGER reject_test_upload BEFORE INSERT ON documents WHEN json_extract(NEW.data, '$.name')='rollback.pdf' BEGIN INSERT INTO transaction_guards(id,ok) VALUES ('forced-upload-conflict',0); END").run();
+ try {
+  const rejected=await upload('rollback.pdf',proofBytes,proofType);
+  ok('D1 rollback discards the rejected upload without removing the committed attachment with identical bytes',rejected.status===409&&rejected.data.code==='CONFLICT'&&(await snapshot()).state.documents.length===count+1&&JSON.stringify(await objectKeys())===JSON.stringify(afterUpload));
+ } finally {await db.prepare('DROP TRIGGER reject_test_upload').run();}
+ const raceOptions={operationId:crypto.randomUUID(),version:(await snapshot()).dataset.version};
+ const simultaneous=await Promise.all([upload('same-operation.pdf',proofBytes,proofType,'owner',raceOptions),upload('same-operation.pdf',proofBytes,proofType,'owner',raceOptions)]);
+ const afterRace=await objectKeys();
+ ok('Simultaneous retries share one result and leave one new R2 object',simultaneous.every(x=>x.status===200&&x.data.id===simultaneous[0].data.id)&&simultaneous.some(x=>x.data.replayed)&&(await snapshot()).state.documents.length===count+2&&afterRace.length===afterUpload.length+1);
+ const mismatched=await upload('different-intent.pdf',proofBytes,proofType,'owner',raceOptions);
+ ok('Reusing an upload operation ID with different input is rejected before storing a file',mismatched.status===409&&mismatched.data.code==='IDEMPOTENCY'&&JSON.stringify(await objectKeys())===JSON.stringify(afterRace));
  const previewFile=await raw('/api/file?id='+doc.data.id+'&preview=1',undefined,'viewer');ok('Independent permitted account can fetch authenticated inline preview',previewFile.status===200&&previewFile.headers.get('content-disposition').startsWith('inline')&&previewFile.headers.get('cache-control')==='private, no-store');
  const download=await raw('/api/file?id='+doc.data.id,undefined,'viewer');ok('Same saved document remains available for secure attachment download',download.status===200&&download.headers.get('content-disposition').startsWith('attachment'));
  await go({type:'member',userId:'file-viewer',role:'viewer',function:'project_manager',projectIds:[otherProject.id],warehouseIds:null,resourceIds:null});ok('Permission revocation takes effect on the next file and export request',(await raw('/api/file?id='+doc.data.id+'&preview=1',undefined,'viewer')).status===404&&(await api('/api/export',{...exportBody,scope:'selected',ids:[product.id],preview:true},'viewer')).status===403);

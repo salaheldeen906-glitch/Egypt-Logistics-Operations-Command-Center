@@ -10,7 +10,7 @@ const sum=(rows:Row[],key:string)=>round(rows.reduce((n,row)=>n+(finite(row[key]
 const date=(value:unknown)=>value&&Number.isFinite(Date.parse(String(value)))?cairoDay(String(value)):'';
 const missing=(ar:boolean)=>ar?'غير متاح':'Unavailable';
 
-/** One output row per actual issue movement. Approvals and case events are dimensions, never facts to sum. */
+/** Pass authorization-scoped state. Output filters select rows; they do not change quantities linked to a discrepancy. */
 export function warehouseIssueReport(s:State,filters:WarehouseIssueFilters={},actorNames:ActorNames={},ar=true){
  const name=(kind:keyof State,id:unknown)=>s[kind].find(row=>row.id===id)?.name||'';
  const code=(kind:keyof State,id:unknown)=>s[kind].find(row=>row.id===id)?.code||'';
@@ -27,14 +27,17 @@ export function warehouseIssueReport(s:State,filters:WarehouseIssueFilters={},ac
    &&(!filters.queue||filters.queue==='all'||!!request&&matchesQueue(s,request,filters.queue))
    &&(!filters.from||!!day&&day>=filters.from)&&(!filters.to||!!day&&day<=filters.to);
  };
- const rows=distinct(s.movements).filter(movement=>movement.type==='issue'&&typeof movement.delta==='number'&&movement.delta<0).flatMap(movement=>{
+ const postedIssues=distinct(s.movements).filter(movement=>movement.type==='issue'&&typeof movement.delta==='number'&&movement.delta<0).map(movement=>{
+  // Older rows have no loadingId. A signature is used only when its issued reservation/movement proves the link.
+  const loading=s.handoffs.find(row=>row.type==='loading_confirmation'&&(!!movement.loadingId&&row.id===movement.loadingId||row.movementId===movement.id||!!movement.reservationId&&row.issuedReservationId===movement.reservationId));
+  return {movement,loading,issuedQuantity:round(-movement.delta)};
+ });
+ const rows=postedIssues.flatMap(({movement,loading,issuedQuantity})=>{
   const request=s.requests.find(row=>row.id===movement.requestId),reservation=s.reservations.find(row=>row.id===movement.reservationId);
   const line=s.lines.find(row=>row.id===(movement.lineId||reservation?.lineId)),task=s.tasks.find(row=>row.id===(movement.taskId||reservation?.taskId));
   const product=s.products.find(row=>row.id===movement.productId),batch=s.batches.find(row=>row.id===movement.batchId);
   const at=movement.postedAt||movement.createdAt;
   if(!inScope(movement,request,product,at))return [];
-  // Older rows have no loadingId. A signature is used only when its issued reservation/movement proves the link.
-  const loading=s.handoffs.find(row=>row.type==='loading_confirmation'&&(!!movement.loadingId&&row.id===movement.loadingId||row.movementId===movement.id||!!movement.reservationId&&row.issuedReservationId===movement.reservationId));
   const relatedApprovals=quantityApprovals.filter(row=>row.requestId===request?.id&&row.lineId===line?.id);
   const approved=relatedApprovals.filter(row=>row.status==='approved').sort((a,b)=>String(a.reviewedAt||a.approvedAt||a.createdAt).localeCompare(String(b.reviewedAt||b.approvedAt||b.createdAt)));
   const orderedApprovals=[...relatedApprovals].sort((a,b)=>String(a.requestedAt||a.createdAt).localeCompare(String(b.requestedAt||b.createdAt)));
@@ -49,7 +52,7 @@ export function warehouseIssueReport(s:State,filters:WarehouseIssueFilters={},ac
    projectId:movement.projectId||request?.projectId||product?.projectId||'',project:name('projects',movement.projectId||request?.projectId||product?.projectId),
    warehouseId:movement.warehouseId,warehouse:name('warehouses',movement.warehouseId),productId:movement.productId,product:product?.code||'',productName:product?.name||'',
    batchId:movement.batchId||'',batch:batch?.code||'',expiryDate:batch?.expiryDate||'',unitId:product?.unitId||'',unit:name('units',product?.unitId),
-   issuedQuantity:round(-movement.delta),postedAt:at||'',postedDay:date(at),requestedQuantity:originalQuantity,approvedQuantity:finite(line?.quantity),approvedIncrease,
+   issuedQuantity,postedAt:at||'',postedDay:date(at),requestedQuantity:originalQuantity,approvedQuantity:finite(line?.quantity),approvedIncrease,
    approvedQuantityAtIssue:finite(movement.approvedQuantityAtIssue),
    requestCreatorId:request?.createdBy||'',requestCreator:person(request?.createdBy,request?.createdByName),
    requestApproverId:request?.reviewedBy||request?.approvedBy||'',requestApprover:person(request?.reviewedBy||request?.approvedBy,request?.reviewedByName||request?.approvedByName),
@@ -77,7 +80,11 @@ export function warehouseIssueReport(s:State,filters:WarehouseIssueFilters={},ac
   const request=s.requests.find(row=>row.id===item.requestId),product=s.products.find(row=>row.id===item.productId);
   if(!inScope(item,request,product,item.discoveredAt||item.createdAt))return [];
   const resolvedById=item.resolvedBy||item.lastReviewedBy||item.reviewedBy||'',discoveredById=item.discoveredBy||item.createdBy||'';
-  const row:Row={...item,request:request?.code||'',project:name('projects',item.projectId||request?.projectId||product?.projectId),warehouse:name('warehouses',item.warehouseId),product:code('products',item.productId),productName:product?.name||'',batch:code('batches',item.batchId),task:code('tasks',item.taskId),unit:name('units',product?.unitId),discoveredByName:person(discoveredById,item.discoveredByName||item.createdByName),handledByName:person(resolvedById,item.resolvedByName||item.lastReviewedByName||item.reviewedByName),postedQuantity:rows.filter(row=>!!item.loadingId&&row.loadingId===item.loadingId||row.id===item.movementId||row.id===item.originalMovementId).reduce((total,row)=>round(total+row.issuedQuantity),0)};
+  const postedQuantity=postedIssues.reduce((total,{movement,loading,issuedQuantity})=>{
+   const linked=(!!item.loadingId&&loading?.id===item.loadingId)||movement.id===item.movementId||movement.id===item.originalMovementId;
+   return linked?round(total+issuedQuantity):total;
+  },0);
+  const row:Row={...item,request:request?.code||'',project:name('projects',item.projectId||request?.projectId||product?.projectId),warehouse:name('warehouses',item.warehouseId),product:code('products',item.productId),productName:product?.name||'',batch:code('batches',item.batchId),task:code('tasks',item.taskId),unit:name('units',product?.unitId),discoveredByName:person(discoveredById,item.discoveredByName||item.createdByName),handledByName:person(resolvedById,item.resolvedByName||item.lastReviewedByName||item.reviewedByName),postedQuantity};
   if(filters.user&&filters.user!=='all'&&![discoveredById,resolvedById].includes(filters.user))return [];
   if(filters.query&&!Object.values(row).some(value=>String(value??'').toLocaleLowerCase().includes(filters.query!.toLocaleLowerCase())))return [];
   return [row];

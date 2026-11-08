@@ -18,7 +18,7 @@ function fixture(status='issued'){
  s.movements.push({id:'op',code:'OP',productId:'prod',warehouseId:'w',batchId:'b',delta:100,type:'opening'});if(status==='issued')s.movements.push({id:'issue',code:'ISS',productId:'prod',warehouseId:'w',batchId:'b',requestId:'r',reservationId:'res',delta:-100,type:'issue'});return s;
 }
 let seq=0;
-function run(s,c,a=manager){const work=structuredClone(s);const add=(kind,v)=>{const n=++seq,r={id:'new-'+n,code:'NEW-'+n,createdAt:now,createdBy:a.userId,...v};work[kind].push(r);return r;};const result=executeExternalTransport(work,a,c,now,add);assert(result);return {s:work,result};}
+function run(s,c,a=manager,at=now){const work=structuredClone(s);const add=(kind,v)=>{const n=++seq,r={id:'new-'+n,code:'NEW-'+n,createdAt:at,createdBy:a.userId,...v};work[kind].push(r);return r;};const result=executeExternalTransport(work,a,c,at,add);assert(result);return {s:work,result};}
 function save(s,q=100,extra={}){return run(s,{type:'external_shipment_save',code:'EXT-'+(++seq),carrierId:'c',lines:[{reservationId:'res',taskId:'t',quantity:q,packageCount:5,packaging:'cartons'}],declaredValue:'1700000.00',currency:'EGP',...extra});}
 function line(s,id){return s.handoffs.find(h=>h.type==='external_shipment_line'&&h.shipmentId===id);}
 function cmd(s,id,type,extra={}){return {type,shipmentId:id,shipmentLineId:line(s,id).id,documentId:'doc',quantity:100,recipient:'External recipient',senderName:'Internal sender',...extra};}
@@ -90,8 +90,17 @@ eq(externalCommandAllowed(courier,'external_deliver'),false);
  no(()=>run(s,{type:'external_shipment_cancel',shipmentId:id,reason:'Cancelled'}));
  ({s}=run(s,cmd(s,id,'external_handover')));
  ({s}=run(s,cmd(s,id,'external_deliver')));s.requests[0].status='closed';
- const ret=run(s,cmd(s,id,'external_return',{quantity:10,source:'delivered',originalDeliveryId:s.deliveries[0].id,warehouseId:'w',reason:'Late customer return'}));
- ({s}=run(ret.s,cmd(ret.s,id,'external_return_accept',{quantity:10,externalReturnId:ret.result.id}),keeper));eq(s.requests[0].status,'closed');eq(balance(s,'prod','w','b').onHand,10);
+ const presentedAt='2026-10-29T12:00:00.000Z',acceptedAt='2026-10-30T12:00:00.000Z';
+ const ret=run(s,cmd(s,id,'external_return',{quantity:10,source:'delivered',originalDeliveryId:s.deliveries[0].id,warehouseId:'w',reason:'Late customer return'}),manager,presentedAt);
+ const awaiting=ret.s.handoffs.find(h=>h.id===id);
+ eq(awaiting.status,'in_transit');eq(awaiting.actualCompletionAt,now);eq(awaiting.recompletedAt,undefined);
+ eq(ret.s.tasks[0].completedAt,now);eq(ret.s.deliveries[0].deliveredAt,now);
+ eq(ret.s.handoffs.find(h=>h.id===ret.result.id).createdAt,presentedAt);eq(balance(ret.s,'prod','w','b').onHand,0);
+ ({s}=run(ret.s,cmd(ret.s,id,'external_return_accept',{quantity:10,externalReturnId:ret.result.id}),keeper,acceptedAt));
+ const settled=s.handoffs.find(h=>h.id===id);
+ eq(s.requests[0].status,'closed');eq(balance(s,'prod','w','b').onHand,10);
+ eq(settled.actualCompletionAt,now);eq(settled.recompletedAt,acceptedAt);
+ eq(s.tasks[0].completedAt,now);eq(s.returns[0].receivedAt,acceptedAt);
 }
 {
  let s=fixture('held');s.requests[0].requestType='purchase_receipt';s.requests[0].status='closed';s.requests[0].distributionPlans=[{id:'dp',code:'DIST',status:'ready'}];
@@ -105,5 +114,51 @@ eq(externalCommandAllowed(courier,'external_deliver'),false);
  const s=fixture();s.tasks[0].quantity=40;no(()=>save(s,41));
  const first=save(s,30);no(()=>save(first.s,11));const second=save(first.s,10);eq(externalUnavailable(second.s,'res'),40);
  no(()=>save(fixture(),100,{lines:[{reservationId:'res',taskId:'t',quantity:100,packageCount:1.5}]}));
+}
+{
+ const source=fixture('held');source.requests[0].allocationPlan=true;source.tasks[0].allocationPlan=true;
+ let {s,result}=save(source,40);const id=result.id;
+ eq(s.reservations,source.reservations);
+ ({s}=save(s,45,{shipmentId:id}));eq(line(s,id).quantity,45);eq(s.reservations,source.reservations);
+ const cancelled=run(s,{type:'external_shipment_cancel',shipmentId:id,reason:'Unconfirmed draft'});
+ eq(cancelled.s.reservations,source.reservations);eq(externalUnavailable(cancelled.s,'res'),0);
+ ({s}=save(s,40,{shipmentId:id}));
+ const remainder=save(s,60);s=remainder.s;const nextId=remainder.result.id;
+ const mismatch=run(s,cmd(s,id,'external_warehouse_release',{quantity:38,reason:'Recount needed'}),keeper);
+ s=mismatch.s;eq(mismatch.result.pending,true);eq(s.reservations,source.reservations);
+ ({s}=run(s,cmd(s,id,'external_warehouse_release',{quantity:40,reason:'Matched after recount'}),keeper));
+ const splitId=line(s,id).reservationId,child=s.reservations.find(r=>r.id===splitId),remaining=s.reservations.find(r=>r.id==='res');
+ assert.notEqual(splitId,'res');eq([child.quantity,child.status,child.originReservationId,child.taskId,child.warehouseId,child.batchId],[40,'held','res','t','w','b']);
+ eq([remaining.quantity,remaining.status,remaining.taskId],[60,'held','t']);
+ eq(line(s,nextId).reservationId,'res');eq(s.assignments.find(a=>a.reservationId===splitId)?.executorId,'rep');
+ eq(s.tasks[0].quantity,100);eq(balance(s,'prod','w','b'),{onHand:100,reserved:100,available:0,transit:0});
+ no(()=>run(s,cmd(s,id,'external_handover',{quantity:40}),{...manager,userId:keeper.userId}),/تأكيد مستقل/.source);
+ ({s}=run(s,cmd(s,id,'external_warehouse_release',{quantity:40,reason:'Confirm again'}),keeper));
+ eq(s.reservations.length,2);eq(line(s,id).reservationId,splitId);
+ ({s}=run(s,cmd(s,nextId,'external_warehouse_release',{quantity:60}),keeper));
+ ({s}=run(s,cmd(s,id,'external_handover',{quantity:40})));
+ eq(s.movements.filter(m=>m.type==='issue').map(m=>[m.reservationId,m.delta]),[[splitId,-40]]);
+ eq(balance(s,'prod','w','b'),{onHand:60,reserved:60,available:0,transit:40});
+ const duplicate=run(s,cmd(s,id,'external_handover',{quantity:40,reason:'Duplicate'}));
+ eq([duplicate.result.pending,duplicate.result.issued],[true,0]);eq(duplicate.s.movements,s.movements);eq(externalLineMetrics(duplicate.s,line(duplicate.s,id)).handed,40);
+ ({s}=run(s,cmd(s,id,'external_deliver',{quantity:40})));eq(s.tasks[0].status,'planned');
+ ({s}=run(s,cmd(s,nextId,'external_handover',{quantity:60})));
+ ({s}=run(s,cmd(s,nextId,'external_deliver',{quantity:60})));eq(s.tasks[0].status,'completed');
+ eq(s.movements.filter(m=>m.type==='issue').map(m=>[m.reservationId,m.delta]),[[splitId,-40],['res',-60]]);
+}
+{
+ let {s,result}=save(fixture('held'),40);const id=result.id,lineId=line(s,id).id;
+ const earlier={id:'legacy-release',code:'LEGACY-REL',type:'external_event',eventType:'warehouse_release',shipmentId:id,shipmentLineId:lineId,reservationId:'res',quantity:40,recordedBy:keeper.userId,documentId:'doc'};
+ const difference={...earlier,id:'legacy-difference',code:'LEGACY-DIFF',eventType:'handover_difference',recordedBy:manager.userId};s.handoffs.push(earlier,difference);
+ no(()=>run(s,cmd(s,id,'external_handover',{quantity:40,reason:'Legacy retry'})),/يعيد أمين المخزن/.source);
+ no(()=>run(s,cmd(s,id,'external_warehouse_release',{quantity:40}),keeper));
+ const inconsistent=structuredClone(s);inconsistent.movements.push({id:'legacy-issue',code:'LEGACY-ISSUE',type:'issue',reservationId:'res',delta:-40});
+ no(()=>run(inconsistent,cmd(s,id,'external_warehouse_release',{quantity:40,reason:'Do not touch issued history'}),keeper),/تنفيذ مخزني/.source);
+ ({s}=run(s,cmd(s,id,'external_warehouse_release',{quantity:40,reason:'Correct legacy 40 of 100'}),keeper));
+ eq(line(s,id).id,lineId);eq(s.handoffs.find(e=>e.id===earlier.id),earlier);eq(s.handoffs.find(e=>e.id===difference.id),difference);
+ const corrected=s.handoffs.filter(e=>e.eventType==='warehouse_release').at(-1);
+ eq([corrected.supersedesId,corrected.originReservationId,corrected.remainingReservedQuantity],[earlier.id,'res',60]);
+ ({s}=run(s,cmd(s,id,'external_handover',{quantity:40})));
+ eq(s.movements.filter(m=>m.type==='issue').map(m=>m.delta),[-40]);eq(s.reservations.find(r=>r.id==='res').quantity,60);
 }
 console.log(JSON.stringify({suite:'external transport domain',checks,status:'PASS'}));

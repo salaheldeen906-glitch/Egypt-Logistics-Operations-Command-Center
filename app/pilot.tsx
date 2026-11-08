@@ -194,6 +194,7 @@ export default function Pilot({commandCenter=false}:{commandCenter?:boolean}={})
         hash: string;
         id: string;
     } | null>(null);
+    const pendingUploads = useRef(new Map<string,string>());
     const l = (a: string, e: string) => ar ? a : e;
     const s: State = snap?.state || emptyState();
     const a = snap?.actor;
@@ -393,18 +394,39 @@ export default function Pilot({commandCenter=false}:{commandCenter?:boolean}={})
     if(kind==='customers')fields.push({...field('address','العنوان المرجعي للعميل','Customer reference address'),required:false},{...field('governorate','المحافظة المرجعية','Reference governorate','select',[{value:'',label:l('غير محدد','Unassigned')},...EGYPT_GOVERNORATES.map(g=>({value:g[0],label:ar?g[1]:g[0].replace(/-/g,' ')}))]),required:false});
     setModal({ title: (existing ? l('تعديل ', 'Edit ') : l('إضافة ', 'New ')) + (kindNames[kind]?.[ar ? 0 : 1] || kind), productTracking:kind==='products',...(kind==='products'&&existing?{subtitle:trackingLocked?l('إعدادات الباتش والصلاحية محفوظة بعد أول حركة مخزنية أو حجز. يمكنك تعديل الاسم.','Batch and expiry settings are locked after the first stock movement or reservation. You can edit the name.'):l('يمكن ضبط الباتش والصلاحية قبل أول حركة مخزنية أو حجز. الصلاحية تفعّل تتبع الدفعات.','Set batch and expiry tracking before the first stock movement or reservation. Expiry enables batch tracking.')}:{}), fields, initial: existing || { projectId: s.projects[0]?.id, unitId: boxUnit?.id || defaultBoxChoice }, submit: v => run({ type: 'master', kind, id: existing?.id, data: {...v,...(kind==='carriers'?{relationshipStatus:v.relationshipStatus||'active'}:{}),...(kind==='products'&&!existing&&v.unitId===defaultBoxChoice?{unitId:undefined}:{})} }) }); }
     function requestForm(type: string, title: string, fields: Field[], initial: any = {}) { setModal({ title,draftKey:(r?.id||'')+':'+type+':'+(initial.reservationId||initial.lineId||initial.taskId||''),attachment:['deliver','receive_purchase','pod'].includes(type)?{upload:uploadFile,purpose:type==='pod'?'pod':'other'}:undefined,fields:fields.map(f=>f.key==='documentId'?{...f,required:false,options:[{value:'none',label:l('بدون مرفق — تجاوز','No attachment — skip')},...(f.options||[])]}:f), initial:{requestId:r?.id,...initial}, submit: v => run({ type, requestId: r?.id, ...v, ...(v.documentId==='none'?{documentId:''}:{}),...(v.participantId==='none'?{participantId:''}:{}),...(v.taskId==='none'?{taskId:''}:{}) }) }); }
-    async function uploadFile(file: File | undefined, purpose: string, taskId?:string) { if (!file || !r)
-        return; setBusy(true); try {
+    async function uploadFile(file: File | undefined, purpose: string, taskId?:string) { if (!file || !r || !a || !snap?.dataset)
+        return;
+        if(inFlight.current){toast.error(l('انتظر اكتمال الحفظ','Wait for the current save'));return;}
+        if(!file.size||file.size>5*1024*1024){toast.error(l('اختر ملفًا بحجم لا يتجاوز ٥ ميجابايت','Choose a file up to 5 MB'));return;}
+        inFlight.current=true;setBusy(true);try {
+        const userId=a.userId,datasetId=snap.dataset.id;
+        const digest=await crypto.subtle.digest('SHA-256',await file.arrayBuffer());
+        if(exportIdentity.current.userId!==userId||exportIdentity.current.datasetId!==datasetId)
+            throw new Error(l('تغيّر الحساب أو مجموعة البيانات؛ اختر المرفق مرة أخرى','Account or dataset changed; choose the attachment again'));
+        const content=Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,'0')).join('');
+        const intent=JSON.stringify([userId,datasetId,r.id,purpose,taskId||'',file.name,file.type,content]);
+        const uploads=pendingUploads.current;
+        let operationId=uploads.get(intent);
+        if(!operationId){
+            if(uploads.size>=8)uploads.delete(uploads.keys().next().value!);
+            operationId=crypto.randomUUID();
+            uploads.set(intent,operationId);
+        }
         const form = new FormData();
         form.set('file', file);
         form.set('requestId', r.id);
         form.set('purpose', purpose); if(taskId)form.set('taskId',taskId);
         form.set('version', String(snap.dataset.version));
-        form.set('operationId', crypto.randomUUID());
+        form.set('operationId', operationId);
         const response = await fetch('/api/upload', { method: 'POST', body: form });
         const data = await response.json() as any;
-        if (!response.ok)
-            throw new Error(data.error);
+        if(!response.ok){
+            if(response.status>=400&&response.status<500&&typeof data?.code==='string')uploads.delete(intent);
+            if(response.status===409)await refresh();
+            throw new Error(data?.error||l('تعذّر حفظ المرفق','Could not save the attachment'));
+        }
+        if(typeof data?.id!=='string'||!data.id)throw new Error(l('تعذّر التأكد من حفظ المرفق؛ اختر الملف نفسه لإعادة المحاولة','Could not confirm the attachment was saved; choose the same file to retry'));
+        uploads.delete(intent);
         toast.success(l('تم رفع المرفق', 'Attachment saved'));
         await refresh();return data.id;
     }
@@ -412,6 +434,7 @@ export default function Pilot({commandCenter=false}:{commandCenter?:boolean}={})
         toast.error(e.message);
     }
     finally {
+        inFlight.current=false;
         setBusy(false);
     } }
     async function exportRows() {try{
@@ -582,7 +605,7 @@ export default function Pilot({commandCenter=false}:{commandCenter?:boolean}={})
 </div>}>
 {orderDrillIds!==null&&<Button variant="outline" size="sm" onClick={()=>setOrderDrillIds(null)}>{l('عرض كل الطلبات','Show all requests')}</Button>}<GridTable tableId={"pilot-table-4"} columns={requestColumns} rows={[...requestRows].filter(r=>orderDrillIds===null||orderDrillIds.includes(r.id)).reverse()}/>
 </CollapsiblePanel>{commandCenter&&<OrdersAnalytics s={s} ar={ar} filters={{project,warehouse,query,from,to,queue}} onSelectRequests={setOrderDrillIds} canExport={tableExportAllowed&&(!a?.access?.enabled||permissionDecision(a,'orders.export').allowed)} loadExportState={loadOverviewExportState}/>}</>}
-        {commandCenter&&view===7&&<section className="panel cc-my-tasks">{a&&<QuantityReviewQueue s={{...s,requests:scopeRows}} actor={a} ar={ar} onOpenRequest={setSelected}/>}{a?.function==='representative'&&s.handoffs.some(h=>h.type==='custody_transfer'&&h.status==='awaiting_receiver')&&<CustodyTransfers s={s} actor={a} directory={snap?.courierDirectory||[]} run={run} ar={ar}/>}{((a?.function==='representative'&&!a?.resourceIds?.length)||(a?.function==='warehouse'&&!a?.warehouseIds?.length))&&<div className="notice" role="status"><ShieldCheck size={18}/><div><b>{l('حسابك يحتاج ربطًا قبل ظهور المهام','Your account needs an assignment link')}</b><p>{a?.function==='representative'?l('اطلب من المالك ربط حسابك بالمندوب من المستخدمين والصلاحيات؛ بعدها تظهر تكليفاتك هنا.','Ask the owner to link your courier profile in Users & permissions; your assignments will then appear here.'):l('اطلب من المالك تحديد مخازنك من المستخدمين والصلاحيات؛ بعدها تظهر مهام الاستلام والصرف هنا.','Ask the owner to set your warehouse scope in Users & permissions; receipt and issue tasks will then appear here.')}</p></div></div>}<div className="cc-task-intro"><div><strong>{l('المطلوب منك الآن','What you need to do now')}</strong><p>{l('افتح المهمة وسجّل الكمية الفعلية. بعد الحفظ تظهر الخطوة التالية ومن ينفذها.','Open the task and enter the actual quantity. Saving shows the next step and its responsible role.')}</p></div><span>{l('دورك','Your role')}: <strong>{ar?(functionNames[a?.function]||roleNames[a?.role]||'—'):(a?.function==='all'?a?.role:a?.function)||'—'}</strong></span></div><div className="cc-task-filters" role="group" aria-label={l('حالة مهامي','My task status')}>{[['ready','جاهز لدوري','Ready for me'],['waiting','بانتظار خطوة','Waiting'],['completed','مكتمل','Completed'],['all','كل ما يخصني','All assigned']].map(([key,arabic,english])=><button key={key} type="button" aria-pressed={myTaskFilter===key} onClick={()=>setMyTaskFilter(key)}>{l(arabic,english)} · {myTaskRows.filter(x=>key==='all'||x.state===key).length}</button>)}</div><CollapsiblePanel sectionId="my-task-records" ar={ar} title={l('قائمة مهامي','My task list')} className="cc-task-list"><GridTable tableId={"pilot-table-5"} empty={l('لا توجد مهام في هذه الحالة ضمن الفلاتر الحالية.','No tasks in this status within the current filters.')} rows={myTaskRows.filter(x=>myTaskFilter==='all'||x.state===myTaskFilter)} columns={[
+        {commandCenter&&view===7&&<section className="panel cc-my-tasks">{a&&<QuantityReviewQueue s={{...s,requests:scopeRows}} actor={a} ar={ar} onOpenRequest={setSelected}/>}{a?.function==='representative'&&(Object.keys(snap?.courierDirectory||{}).length>0||s.handoffs.some(h=>h.type==='custody_transfer'&&h.status==='awaiting_receiver'))&&<CustodyTransfers s={s} actor={a} directory={snap?.courierDirectory||{}} run={run} ar={ar}/>}{((a?.function==='representative'&&!a?.resourceIds?.length)||(a?.function==='warehouse'&&!a?.warehouseIds?.length))&&<div className="notice" role="status"><ShieldCheck size={18}/><div><b>{l('حسابك يحتاج ربطًا قبل ظهور المهام','Your account needs an assignment link')}</b><p>{a?.function==='representative'?l('اطلب من المالك ربط حسابك بالمندوب من المستخدمين والصلاحيات؛ بعدها تظهر تكليفاتك هنا.','Ask the owner to link your courier profile in Users & permissions; your assignments will then appear here.'):l('اطلب من المالك تحديد مخازنك من المستخدمين والصلاحيات؛ بعدها تظهر مهام الاستلام والصرف هنا.','Ask the owner to set your warehouse scope in Users & permissions; receipt and issue tasks will then appear here.')}</p></div></div>}<div className="cc-task-intro"><div><strong>{l('المطلوب منك الآن','What you need to do now')}</strong><p>{l('افتح المهمة وسجّل الكمية الفعلية. بعد الحفظ تظهر الخطوة التالية ومن ينفذها.','Open the task and enter the actual quantity. Saving shows the next step and its responsible role.')}</p></div><span>{l('دورك','Your role')}: <strong>{ar?(functionNames[a?.function]||roleNames[a?.role]||'—'):(a?.function==='all'?a?.role:a?.function)||'—'}</strong></span></div><div className="cc-task-filters" role="group" aria-label={l('حالة مهامي','My task status')}>{[['ready','جاهز لدوري','Ready for me'],['waiting','بانتظار خطوة','Waiting'],['completed','مكتمل','Completed'],['all','كل ما يخصني','All assigned']].map(([key,arabic,english])=><button key={key} type="button" aria-pressed={myTaskFilter===key} onClick={()=>setMyTaskFilter(key)}>{l(arabic,english)} · {myTaskRows.filter(x=>key==='all'||x.state===key).length}</button>)}</div><CollapsiblePanel sectionId="my-task-records" ar={ar} title={l('قائمة مهامي','My task list')} className="cc-task-list"><GridTable tableId={"pilot-table-5"} empty={l('لا توجد مهام في هذه الحالة ضمن الفلاتر الحالية.','No tasks in this status within the current filters.')} rows={myTaskRows.filter(x=>myTaskFilter==='all'||x.state===myTaskFilter)} columns={[
 {key:'request',label:l('رقم الطلب / المهمة','Request / task'),render:x=><button className="row-link" onClick={()=>setSelected(x.request.id)}><b dir="ltr">{x.request.code}</b>{x.step.task&&<span dir="ltr">{x.step.task.code}</span>}</button>},
 {key:'type',label:l('نوع الطلب','Request type'),render:x=>typeLabel(x.request,ar)},
 {key:'project',label:l('المشروع','Project'),render:x=>name('projects',x.request.projectId)},
@@ -636,7 +659,7 @@ export default function Pilot({commandCenter=false}:{commandCenter?:boolean}={})
 <CollapsiblePanel sectionId="dispatch-custody" ar={ar} title={l('الإسنادات والعهدة', 'Assignments & custody')} header={<div className="section-heading">
 <h2>{l('الإسنادات والعهدة', 'Assignments & custody')}</h2>
 </div>}>
-<GridTable tableId={"pilot-table-10"} columns={[{ key: 'requestId', label: l('الطلب', 'Request'), render: x => <button className="text-link" onClick={() => setSelected(x.requestId)}>{name('requests', x.requestId)}</button> }, { key: 'warehouseId', label: l('المخزن', 'Warehouse'), render: x => name('warehouses', x.warehouseId) }, { key: 'executorId', label: l('المندوب', 'Executor'), render: x => name('resources', x.executorId) }, { key: 'carrierId', label: l('الناقل', 'Carrier'), render: x => name('carriers', x.carrierId) }, { key: 'handoff', label: '', render: x => !commandCenter&&can('handoff') ? <Button variant="ghost" onClick={() => setModal({ title: l('تسليم عهدة لمندوب آخر', 'Custody handover'), fields: [field('toId', 'المندوب المستلم', 'Receiving executor', 'select', opts('resources')), field('reason', 'السبب', 'Reason')], submit: v => run({ type: 'handoff', assignmentId: x.id, ...v }) })}>{l('تسليم عهدة', 'Hand over')}</Button> : null }]} rows={s.assignments.filter(x=>requestIds.has(x.requestId))}/><CustodyTransfers s={s} actor={a} directory={snap?.courierDirectory||[]} run={run} ar={ar}/>
+<GridTable tableId={"pilot-table-10"} columns={[{ key: 'requestId', label: l('الطلب', 'Request'), render: x => <button className="text-link" onClick={() => setSelected(x.requestId)}>{name('requests', x.requestId)}</button> }, { key: 'warehouseId', label: l('المخزن', 'Warehouse'), render: x => name('warehouses', x.warehouseId) }, { key: 'executorId', label: l('المندوب', 'Executor'), render: x => name('resources', x.executorId) }, { key: 'carrierId', label: l('الناقل', 'Carrier'), render: x => name('carriers', x.carrierId) }, { key: 'handoff', label: '', render: x => !commandCenter&&can('handoff') ? <Button variant="ghost" onClick={() => setModal({ title: l('تسليم عهدة لمندوب آخر', 'Custody handover'), fields: [field('toId', 'المندوب المستلم', 'Receiving executor', 'select', opts('resources')), field('reason', 'السبب', 'Reason')], submit: v => run({ type: 'handoff', assignmentId: x.id, ...v }) })}>{l('تسليم عهدة', 'Hand over')}</Button> : null }]} rows={s.assignments.filter(x=>requestIds.has(x.requestId))}/><CustodyTransfers s={s} actor={a} directory={snap?.courierDirectory||{}} run={run} ar={ar}/>
 </CollapsiblePanel>
 </>}
         {view === 5 && <>

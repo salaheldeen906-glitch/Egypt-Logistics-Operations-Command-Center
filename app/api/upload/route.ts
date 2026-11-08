@@ -1,9 +1,8 @@
-import { actor, act, bucket, dataset, loadState, hash, originCheck, boundedBody, json, failure } from '@/lib/server';
-import { assertScope } from '@/lib/access';
+import { actor, act, bucket, dataset, hash, originCheck, boundedBody, json, failure } from '@/lib/server';
 import { demand } from '@/lib/model';
 import { authorize } from '@/lib/engine';
 import {proofMime} from '@/lib/proof-file';
-export async function POST(req: Request) { let key: string | undefined; try {
+export async function POST(req: Request) { try {
     originCheck(req);
     const a = await actor();
     authorize(a, { type: 'upload' });
@@ -15,11 +14,26 @@ export async function POST(req: Request) { let key: string | undefined; try {
     const bytes = await f.arrayBuffer(), head = new Uint8Array(bytes);
     const mime = proofMime(head,f.name,f.type);
     const d = await dataset();
-    assertScope(await loadState(d.id),a,{type:'upload',requestId:String(form.get('requestId')),taskId:String(form.get('taskId')||'')});
     const fileHash = await hash(bytes);
-    key = `files/${d.id}/${a.userId}/${fileHash}`;
-    await bucket().put(key, bytes, { httpMetadata: { contentType: mime } });
-    return json(await act(a, { version: Number(form.get('version')), operationId: String(form.get('operationId')), command: { type: 'upload', requestId: String(form.get('requestId')), taskId:String(form.get('taskId')||''), purpose: String(form.get('purpose')), file: { key, name: f.name.replace(/[\r\n]/g, '').slice(0, 180), size: f.size, mime } } }, true));
+    const prefix = `files/${d.id}/${a.userId}`;
+    // A failed attempt never owns an existing attachment or backup object.
+    const key = `${prefix}/upload-${crypto.randomUUID()}`;
+    const version = form.get('version');
+    const result = await act(a, {
+        version: typeof version === 'string' && version.trim() ? Number(version) : NaN,
+        operationId: form.get('operationId'),
+        command: {
+            type: 'upload', requestId: String(form.get('requestId')), taskId: String(form.get('taskId') || ''),
+            purpose: String(form.get('purpose')),
+            file: { key, name: f.name.replace(/[\r\n]/g, '').slice(0, 180), size: f.size, mime },
+        },
+    }, {
+        datasetId: d.id,
+        contentKey: `${prefix}/${fileHash}`,
+        store: () => bucket().put(key, bytes, { httpMetadata: { contentType: mime } }),
+        discard: () => bucket().delete(key),
+    });
+    return json(result);
 }
 catch (e) {
     return failure(e);

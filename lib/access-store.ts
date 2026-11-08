@@ -67,6 +67,48 @@ export async function decorateAccessActor(a:Actor,session?:SessionProof):Promise
  return a;
 }
 
+type CourierCandidateRow=Pick<Actor,'userId'|'name'|'role'|'function'|'active'>&{
+ projectScope:string|null;operationsScope:string|null;accountId?:string|null;grant_id?:string|null;
+ accountActive?:number;accountRevision?:number;starts_at?:string|null;ends_at?:string|null;unlimited?:number;overrides?:string;
+};
+type CustodyRecipient={actor:Actor;commitGuards:(key:string)=>D1PreparedStatement[]};
+
+/** Derive who can sign in and receive, without requiring them to already have a session. */
+export async function custodyRecipientCandidates(sender:Actor,datasetId:string):Promise<CustodyRecipient[]>{
+ const enabled=accessEnabled(),workspace=grantDatasetId(datasetId),at=now();
+ const select='SELECT m.user_id AS userId,m.name,m.role,m.function,m.active,p.value AS projectScope,o.value AS operationsScope';
+ const accountFields=',a.user_id AS accountId,a.grant_id,a.active AS accountActive,a.revision AS accountRevision,a.starts_at,a.ends_at,a.unlimited,a.overrides';
+ const memberJoins=" FROM members m JOIN settings o ON o.key='member_operations:'||m.user_id LEFT JOIN settings p ON p.key='member_scope:'||m.user_id";
+ const candidates=q(select+(enabled?accountFields:'')+memberJoins+(enabled?' LEFT JOIN access_accounts a ON a.user_id=m.user_id':'')+" WHERE m.active=1 AND m.role<>'owner' AND m.function='representative' AND m.user_id<>?",sender.userId);
+ const results=await db().batch([candidates,...(enabled?[q('SELECT * FROM access_grants WHERE dataset_id=?',workspace)]:[])]);
+ const grant=(results[1]?.results[0] as GrantRow|undefined);
+ if(grant&&!inPeriod(grant,at))return [];
+ const delegation=grant?grantView(grant):null;
+ const out:CustodyRecipient[]=[];
+ for(const r of results[0].results as CourierCandidateRow[]){
+  const raw=r.operationsScope?parse<{resourceIds?:Scope}>(r.operationsScope):null;
+  // A workspace grant alone does not link a person's independent courier identity.
+  if(!Array.isArray(raw?.resourceIds)||!raw.resourceIds.length)continue;
+  if(r.accountId&&(!grant||r.grant_id!==grant.id||!inPeriod({active:r.accountActive!,starts_at:r.starts_at??null,ends_at:r.ends_at??null,unlimited:r.unlimited!},at)))continue;
+  const projectIds=r.projectScope?parse<Scope>(r.projectScope):null;
+  const actor:Actor={userId:r.userId,name:r.name,role:r.role,function:r.function,active:r.active,projectIds:delegation?intersectScope(projectIds,delegation.projectIds):projectIds,resourceIds:delegation?intersectScope(raw.resourceIds,delegation.resourceIds):raw.resourceIds};
+  if(delegation)actor.access={enabled:true,platformOwner:false,clientAdmin:false,overrides:r.overrides?parse<Record<string,Override>>(r.overrides):{},ceiling:delegation.ceiling};
+  out.push({actor,commitGuards:(key)=>{
+   const id=key+':custody-recipient',commitAt=now();
+   let sql="INSERT INTO transaction_guards(id,ok) SELECT ?,CASE WHEN EXISTS(SELECT 1 FROM datasets WHERE id=? AND active=1) AND EXISTS(SELECT 1 FROM members WHERE user_id=? AND active=1 AND role=? AND function='representative') AND (SELECT value FROM settings WHERE key=?) IS ? AND (SELECT value FROM settings WHERE key=?) IS ?";
+   const args:any[]=[id,datasetId,r.userId,r.role,'member_scope:'+r.userId,r.projectScope,'member_operations:'+r.userId,r.operationsScope];
+   if(enabled){
+    if(grant){sql+=' AND EXISTS(SELECT 1 FROM access_grants WHERE id=? AND revision=? AND active=1 AND (starts_at IS NULL OR starts_at<=?) AND (unlimited=1 OR ends_at>?))';args.push(grant.id,grant.revision,commitAt,commitAt);}
+    else{sql+=' AND NOT EXISTS(SELECT 1 FROM access_grants WHERE dataset_id=?)';args.push(workspace);}
+    if(r.accountId){sql+=' AND EXISTS(SELECT 1 FROM access_accounts WHERE user_id=? AND grant_id=? AND revision=? AND active=1 AND (starts_at IS NULL OR starts_at<=?) AND (unlimited=1 OR ends_at>?))';args.push(r.userId,r.grant_id,r.accountRevision,commitAt,commitAt);}
+    else{sql+=' AND NOT EXISTS(SELECT 1 FROM access_accounts WHERE user_id=?)';args.push(r.userId);}
+   }
+   return [q(sql+' THEN 1 ELSE 0 END',...args),q('DELETE FROM transaction_guards WHERE id=?',id)];
+  }});
+ }
+ return out;
+}
+
 /** Guards run in the same D1 batch as the operation, preventing a stale authorization write. */
 export function accessCommitGuards(a:Actor,key:string):D1PreparedStatement[]{
  const x=context(a);if(!accessEnabled()||!x)return [];

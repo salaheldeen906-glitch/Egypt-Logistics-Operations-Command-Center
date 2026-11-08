@@ -1,3 +1,15 @@
+# Isolated review — DAF-01–06 / 8 November 2026
+
+The owner approved targeted fixes from the GitHub audit with the existing pilot preserved. Review branch `fix/daf-pilot-regressions` starts from `ac10819246fa4cbe847cbef655159459426da559`. This is a source change for review. There is no migration, hosted test write, or deployment in this task.
+
+- DAF-01: matching warehouse confirmation isolates the planned partial quantity, retaining the remainder on its original source/task. Independent carrier handover posts once. A previously confirmed partial shipment with no execution can be corrected by the keeper re-confirming with a reason; prior evidence is retained.
+- DAF-02: the recipient list is scoped to the active dataset and the specific custody source. The server also verifies the distinct recipient's eligibility and guards it in the write transaction.
+- DAF-03: stale or invalid attachments are rejected before R2 storage. Each attempt owns a distinct object and known rollbacks discard only that object. Retries preserve operation identity. Unknown commit outcomes retain the object to protect any committed attachment.
+- DAF-04/05: discrepancy quantities use authorized issue facts; report filters still select displayed rows. First completion times are preserved and subsequent re-completion is recorded separately. There is no historical backfill.
+- DAF-06: see the archived first-journey HTML and the current preview build commands in `README.md`. The archived entry source is still missing.
+
+Verified with locked dependencies: TypeScript and production build pass; 134 transport-domain assertions, 36 local external Worker checks, 26 local custody Worker checks across both access modes, 40 local attachment/permission Worker checks, 44 local quantity Worker checks, 22 warehouse report assertions, and 10 isolated Chromium checks pass. Worker identities and browser fixture data are synthetic. Return to the base commit for a code-only rollback; records created by this branch have not been tested against an older deployment.
+
 # Current authority — external transport / 22 October 2026
 
 Owner explicitly requested implementation on the existing DAF project of the pasted carrier/shipment/custody/document proposal, using the uploaded deep-execution harness. Continue exact Site appgprj_6ace37bed1fc8191af88d9705def4ba7 from v14/source b081c84557aab44b19e1433cf4fe686555e158e2. Preserve existing appearance/navigation, all operational projects/products/data, roles/grants, authentication and sharing. No migration/reset/seed or example shipment import is authorized or needed. Use isolated synthetic review before publication. This is an additive change, not original-version recovery.
